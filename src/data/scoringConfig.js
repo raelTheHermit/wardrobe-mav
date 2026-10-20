@@ -1,0 +1,48 @@
+export const scoringConfig = {
+  mainWeights: {
+    compatibility: 0.3,
+    aesthetic: 0.25,
+    context: 0.2,
+    personal: 0.15,
+    silhouette: 0.1,
+    novelty: 0.03,
+  },
+  pairwiseWeights: {
+    color: 0.35,
+    pattern: 0.2,
+    formality: 0.2,
+    style: 0.25,
+  },
+  contextWeights: {
+    occasion: 0.35,
+    weather: 0.3,
+    activity: 0.2,
+    formality: 0.15,
+  },
+  thresholds: {
+    minScore: 0.38,
+    hardFail: 0.14,
+  },
+  colorCompatibilityTable: {
+    ivory: { ivory: 0.9, white: 0.85, navy: 0.8, black: 0.55, terracotta: 0.72, olive: 0.7, stone: 0.88, brown: 0.7, wine: 0.6 },
+    white: { white: 0.9, ivory: 0.85, navy: 0.8, black: 0.6, terracotta: 0.8, olive: 0.75, stone: 0.9, brown: 0.7, wine: 0.7 },
+    navy: { navy: 0.9, white: 0.8, ivory: 0.8, black: 0.65, terracotta: 0.7, olive: 0.78, stone: 0.75, brown: 0.68, wine: 0.6 },
+    black: { black: 0.9, white: 0.6, ivory: 0.55, navy: 0.65, terracotta: 0.5, olive: 0.45, stone: 0.5, brown: 0.5, wine: 0.55 },
+    terracotta: { terracotta: 0.9, white: 0.8, ivory: 0.72, navy: 0.7, black: 0.5, olive: 0.7, stone: 0.75, brown: 0.8, wine: 0.78 },
+    olive: { olive: 0.9, white: 0.75, ivory: 0.7, navy: 0.78, black: 0.45, terracotta: 0.7, stone: 0.8, brown: 0.72, wine: 0.6 },
+    stone: { stone: 0.9, white: 0.9, ivory: 0.88, navy: 0.75, black: 0.5, terracotta: 0.75, olive: 0.8, brown: 0.75, wine: 0.7 },
+    brown: { brown: 0.9, white: 0.7, ivory: 0.7, navy: 0.68, black: 0.5, terracotta: 0.8, olive: 0.72, stone: 0.75, wine: 0.7 },
+    wine: { wine: 0.9, white: 0.7, ivory: 0.6, navy: 0.6, black: 0.55, terracotta: 0.78, olive: 0.6, stone: 0.7, brown: 0.7 },
+    beige: { beige: 0.9, white: 0.88, ivory: 0.85, navy: 0.72, black: 0.5, terracotta: 0.78, olive: 0.72, stone: 0.82, brown: 0.8, wine: 0.7 },
+    cream: { cream: 0.9, white: 0.9, ivory: 0.9, navy: 0.72, black: 0.5, terracotta: 0.76, olive: 0.73, stone: 0.85, brown: 0.78, wine: 0.7 },
+    indigo: { indigo: 0.9, white: 0.8, ivory: 0.8, navy: 0.88, black: 0.55, terracotta: 0.7, olive: 0.7, stone: 0.75, brown: 0.7, wine: 0.58 },
+  },
+  patternCompatibilityTable: {
+    solid: { solid: 0.85, striped: 0.75, checked: 0.5, floral: 0.5, textured: 0.7 },
+    striped: { solid: 0.75, striped: 0.7, checked: 0.45, floral: 0.5, textured: 0.7 },
+    checked: { solid: 0.5, striped: 0.45, checked: 0.7, floral: 0.4, textured: 0.55 },
+    floral: { solid: 0.5, striped: 0.5, checked: 0.4, floral: 0.7, textured: 0.55 },
+    textured: { solid: 0.7, striped: 0.7, checked: 0.55, floral: 0.55, textured: 0.8 },
+  },
+  neutralScore: 0.5,
+}
