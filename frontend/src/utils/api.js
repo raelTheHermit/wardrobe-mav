@@ -18,8 +18,12 @@ export async function apiRequest(path, options = {}) {
       ...options,
       headers: options.body instanceof FormData ? options.headers : { 'Content-Type': 'application/json', ...options.headers },
     })
-  } catch {
-    throw new ApiError('The wardrobe API is unavailable. Start the Flask server and try again.')
+  } catch (error) {
+  console.error('API network error:', `${API_BASE}${path}`, error)
+
+  throw new ApiError(
+    `Cannot reach the API at ${API_BASE}. ${error.message || 'Network request failed.'}`
+  )
   }
   if (response.status === 204) return null
   const payload = await response.json().catch(() => ({}))
