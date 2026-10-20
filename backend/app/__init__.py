@@ -25,7 +25,13 @@ def create_app(test_config=None):
     )
     if test_config:
         app.config.update(test_config)
-    CORS(app, origins=[os.getenv('FRONTEND_ORIGIN', 'http://localhost:5173')])
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": [
+            "https://app-nu-seven-87.vercel.app",
+            "http://localhost:5173",
+        ]}}
+    )
     db.init_app(app)
     migrate.init_app(app, db)
     Path(app.config['MEDIA_DIR']).mkdir(parents=True, exist_ok=True)
