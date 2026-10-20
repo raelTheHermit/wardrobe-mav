@@ -1,0 +1,20 @@
+<svg width="220" height="180" viewBox="0 0 220 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Shoulder width measurement guide">
+  <rect width="220" height="180" fill="#f8fafc"/>
+  <g stroke="#1f2937" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="110" cy="30" r="16" fill="#e2e8f0"/>
+    <path d="M80 50 L70 86 L90 110 L100 145 L94 165 M140 50 L150 86 L130 110 L120 145 L126 165" fill="none" stroke-width="4"/>
+    <path d="M90 110 L130 110" stroke-width="4"/>
+    <path d="M70 86 L150 86" stroke-dasharray="8 7" stroke-width="2"/>
+    <path d="M52 86 L70 86" stroke-width="2"/>
+    <path d="M150 86 L168 86" stroke-width="2"/>
+    <path d="M40 86 L50 86" stroke-width="2"/>
+    <path d="M170 86 L180 86" stroke-width="2"/>
+    <path d="M60 86 L60 72" stroke-width="2"/>
+    <path d="M160 86 L160 72" stroke-width="2"/>
+    <path d="M60 72 L75 72" stroke-width="2"/>
+    <path d="M160 72 L145 72" stroke-width="2"/>
+  </g>
+  <g fill="#7c3aed" font-size="11" font-family="Arial, sans-serif" font-weight="700">
+    <text x="72" y="67">shoulder</text>
+  </g>
+</svg>

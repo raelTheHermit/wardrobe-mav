@@ -1,0 +1,19 @@
+<svg width="220" height="180" viewBox="0 0 220 180" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Chest circumference measurement guide">
+  <rect width="220" height="180" fill="#f8fafc"/>
+  <g stroke="#1f2937" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="110" cy="28" r="15" fill="#e2e8f0"/>
+    <path d="M82 55 L68 82 L76 150 L95 165 L125 165 L144 150 L152 82 L138 55" fill="none" stroke-width="4"/>
+    <path d="M88 88 C95 96, 125 96, 132 88" fill="none" stroke-width="3"/>
+    <path d="M62 108 C62 92, 70 82, 80 78" fill="none" stroke-width="2" stroke-dasharray="6 6"/>
+    <path d="M158 108 C158 92, 150 82, 140 78" fill="none" stroke-width="2" stroke-dasharray="6 6"/>
+    <path d="M65 108 L52 108" stroke-width="2"/>
+    <path d="M155 108 L168 108" stroke-width="2"/>
+    <path d="M52 108 L52 126" stroke-width="2"/>
+    <path d="M168 108 L168 126" stroke-width="2"/>
+    <path d="M52 126 L60 126" stroke-width="2"/>
+    <path d="M168 126 L160 126" stroke-width="2"/>
+  </g>
+  <g fill="#7c3aed" font-size="11" font-family="Arial, sans-serif" font-weight="700">
+    <text x="76" y="62">chest</text>
+  </g>
+</svg>

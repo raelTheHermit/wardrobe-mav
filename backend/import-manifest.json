@@ -1,0 +1,270 @@
+{
+  "version": 1,
+  "images": [
+    {
+      "source": "garments/IMG_20261020_085440.jpg",
+      "sha256": "82f5a2dc93e7c01bfce2b40504b5dfedfd919bad4a81257fdfe0a4680acf86bd",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_085633.jpg",
+      "sha256": "289c00e85d38cf51b4fa25baa5cc640680e3c418b45b3ace6746149c317c594a",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_085725.jpg",
+      "sha256": "f1a415fbde9ad58bd4f48d298574f5bd097d635cceecbe0005824fbc170b36a4",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_085815.jpg",
+      "sha256": "26d45f1bde52b2e39e92ce2d716fe9e1eb3b579ace3f2020cc4812535a4e3836",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_085844.jpg",
+      "sha256": "d0213d732abbc2ff1c82af71034c2407214d9e1918bef848b8a4e4bb1190b6ac",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_085939.jpg",
+      "sha256": "e062bbc7ea271e07c80df7ab7b77cfb5a56ce89d0b9249ac3a0c9301be6ae292",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090009.jpg",
+      "sha256": "6a493509f10d726cd29c519152fb0ba2c25fa7ad51c5a3bf27736f390621a562",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090032.jpg",
+      "sha256": "2112cafac8285f4836e4b46ba5a8c1055b5acc6e897b600be1e676e1320bd05a",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090244.jpg",
+      "sha256": "de2d34bc4accc0f781a918d9a2dc2a82a4a161c11f81a15f48b570420d28c54d",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090319.jpg",
+      "sha256": "8da76c3164bd5cf2e7c8cd8b323777123d900a4e539ab7121d51f67fdfe31f48",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090354.jpg",
+      "sha256": "54ce16a5b79b942a2e3996dcaed13e9497de2a12032b050a699a538c5e05e963",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090410.jpg",
+      "sha256": "0fcaa2520c331eba6d1e6d07f6859642a2f2f800f171d215d785e8b4f79beae2",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090430.jpg",
+      "sha256": "c99a96e211cbafb2dd94954082139009b9652cbfe22e52c1cf15c0f6bab2dc58",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090442.jpg",
+      "sha256": "5cc10bfee3c558727c38bd7caaa2ea7c2012b83ab78f19e9ddc7a9a84b773b53",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090500.jpg",
+      "sha256": "5e518f7e1f2761f07d6ab393f9825a6181bb2e34ce6961bf84be8a4823a97643",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090528.jpg",
+      "sha256": "531c574629cf4e106248cec56fd5a9d81cac39b5cef4975699affe0152d7e938",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090558.jpg",
+      "sha256": "f78c7160c3d3553c6eec92d9893ea0b6ade17f30bbd393f3ff993ecf869c1cca",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090618.jpg",
+      "sha256": "d547ffe83b679ff4c0ffb5a1e563bc59ccc8778f0236002fe7de1e445267befa",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090642.jpg",
+      "sha256": "2df94a05d912b13d137853ef2031a1f4439e72cedcb53f52d50b4c3eda945103",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090727.jpg",
+      "sha256": "e12edd46a24610de98c2d4a3956a69f31c2b7d6ef8826e2cd4961bcf40ca7c1f",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090753.jpg",
+      "sha256": "806dd8ebcd5b3ec5c0fa6112e9292ed3746d15f1379021d4339f111b669dfa60",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090829.jpg",
+      "sha256": "2ba10bf1e09c1e6270efb762c32e4a2e1c95fd733798a504f710ab639bf53049",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_090938.jpg",
+      "sha256": "e170b123fa016ea0460027806363e853add44d04d42a03b6dbb358194abfb6a2",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091003.jpg",
+      "sha256": "06241e36b26bbb70e946a97296241e0daa07f8167cb493f123d2e35adc8c50fb",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091048.jpg",
+      "sha256": "3984227030dc3d4cc4cfcc368ea4d730ed6784328286af6f52d49718f919baf3",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091116.jpg",
+      "sha256": "f2f26ed30ff8da8e04d3ff8256ff8366a0b0a8cf0fd37542346fd9649248aae3",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091207.jpg",
+      "sha256": "57a71dab75e9c1ad5b3d4100efa00eea00d63cdfc70d724ee50229687e54ae81",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091230.jpg",
+      "sha256": "466207ba614b5e4115bd0c259bd0bf9cad5b74f2633d7c12ba70fb95796f8043",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091321.jpg",
+      "sha256": "3fbb76d47935a0407c7c34a81186c51c390b4da52b20eeccb4b611239995baa3",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091333.jpg",
+      "sha256": "6d7b2f5eb68846ef8a58804972509bcc0d6c683951d927db34bdf526789c4f2b",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091344.jpg",
+      "sha256": "323117dafc359113b941da7b22481b90fbdd6e0a510bff36aa6ab1d45b00f934",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091354.jpg",
+      "sha256": "0383ac6bcb2c530a010a19f7d3f50903d114f94212c4e047541f33f4ac041c9d",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091406.jpg",
+      "sha256": "d8efa29d64a059c11932ef22058bad30071ee99cfd6daf65279cb449deb0a759",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091430.jpg",
+      "sha256": "f3ed029a9da79852ea1791f4c9c36e883804c7051590b275b0efe1582d908c3b",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091504.jpg",
+      "sha256": "8b8eb5212322bc13a752773251aa0eca0517612540154a307c330a7afae20f3f",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091556.jpg",
+      "sha256": "fe7cc6fcd32b807b79e4f5f37355b62d977c3bb93a11ca9ab879a1e76869617b",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091621.jpg",
+      "sha256": "3fdf5d64ba72df9800643cd5faa66944cb8fa792b2a0bf9348fa421d14c11af3",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091653.jpg",
+      "sha256": "2e41c6b52742391a1d7cbc026d94986c221de3089bcf5575a058fbab9adb2d8e",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091719.jpg",
+      "sha256": "86f0236ff92d7690273bb0e9779c2ef5455082c740cbdc54f1c7151e803a0f98",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091738.jpg",
+      "sha256": "97e9fc032be2e6c5f40fe15267803579258d2952aba419e06eb2049795d8d2d5",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091808.jpg",
+      "sha256": "5f88d21021be5dcc6080f840590a80e6089931e7d1766059146e399d9f3e5bd9",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091829.jpg",
+      "sha256": "dea052cf76d17385d7adb0b49fe25b8f7d775034d1df8012e1007997c2105ee7",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "garments/IMG_20261020_091904.jpg",
+      "sha256": "fab14e1af2e337101d9a50bfccfed5c2ec32b72ad6df37f55d2c252f6d5b46df",
+      "status": "manual_review",
+      "items": []
+    },
+    {
+      "source": "src/assets/hero.png",
+      "sha256": "881ffbcaafc212e49addad08846a5b82761355fa20624253af3477ba33262c5c",
+      "status": "unrelated",
+      "items": [],
+      "notes": "Application hero artwork, not a wardrobe photograph."
+    }
+  ]
+}
