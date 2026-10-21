@@ -11,23 +11,54 @@ export class ApiError extends Error {
   }
 }
 
+
 export async function apiRequest(path, options = {}) {
+  const url = `${API_BASE}${path}`
+  const headers = { ...options.headers }
+
+  // Only set JSON Content-Type when sending a JSON body.
+  // Do not set it for GET requests or FormData uploads.
+  if (
+    options.body != null &&
+    !(options.body instanceof FormData) &&
+    !Object.keys(headers).some(
+      (key) => key.toLowerCase() === 'content-type'
+    )
+  ) {
+    headers['Content-Type'] = 'application/json'
+  }
+
   let response
+
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(url, {
       ...options,
-      headers: options.body instanceof FormData ? options.headers : { 'Content-Type': 'application/json', ...options.headers },
+      headers,
     })
   } catch (error) {
-  console.error('API network error:', `${API_BASE}${path}`, error)
+    console.error('API network error:', {
+      url,
+      message: error.message,
+      error,
+    })
 
-  throw new ApiError(
-    `Cannot reach the API at ${API_BASE}. ${error.message || 'Network request failed.'}`
-  )
+    throw new ApiError(
+      `Cannot reach ${url}. Check the browser console for the network error.`
+    )
   }
+
   if (response.status === 204) return null
+
   const payload = await response.json().catch(() => ({}))
-  if (!response.ok) throw new ApiError(payload.error?.message || 'The request failed.', response.status, payload.error?.details)
+
+  if (!response.ok) {
+    throw new ApiError(
+      payload.error?.message || 'The request failed.',
+      response.status,
+      payload.error?.details
+    )
+  }
+
   return payload
 }
 
