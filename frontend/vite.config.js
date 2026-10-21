@@ -16,7 +16,8 @@ export default defineConfig({
       manifest: {
         name: "Fitzii",
         short_name: "Fitzii",
-        description: "A personal styling app for building better outfits from what you already own.",
+        description:
+          "A personal styling app for building better outfits from what you already own.",
         theme_color: "#111827",
         background_color: "#f8fafc",
         display: "standalone",
