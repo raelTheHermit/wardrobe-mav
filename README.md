@@ -1,6 +1,6 @@
-# Wardrobe AI
+# Fitzii
 
-Wardrobe AI keeps its existing React interface and deterministic outfit scoring engine, with a Flask API and PostgreSQL persistence layer. The scoring code remains in `src/engine`; Flask calls that same code through Node for recommendations, so the browser and server do not maintain separate ranking implementations.
+Fitzii keeps its existing React interface and deterministic outfit scoring engine, with a Flask API and PostgreSQL persistence layer. The scoring code remains in `src/engine`; Flask calls that same code through Node for recommendations, so the browser and server do not maintain separate ranking implementations.
 
 ## Backend setup
 
