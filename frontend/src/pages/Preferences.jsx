@@ -1,21 +1,18 @@
 import AestheticSelector from '../components/AestheticSelector.jsx'
 import ContextSelector from '../components/ContextSelector.jsx'
 import PreferenceSettings from '../components/PreferenceSettings.jsx'
+import PageHeader from '../components/PageHeader.jsx'
 
 export default function Preferences({ context, aesthetic, preferences, onContextChange, onAestheticChange, onPreferencesChange }) {
   return (
-    <section className="page">
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Preferences</p>
-          <h2>Personal style tuning</h2>
-        </div>
-      </div>
-
-      <div className="settings-grid">
+    <section className="space-y-6">
+      <PageHeader eyebrow="Preferences" title="Personal style tuning" />
+      <div className="grid items-start gap-5 lg:grid-cols-2">
         <ContextSelector value={context} onChange={onContextChange} />
         <AestheticSelector value={aesthetic} onChange={onAestheticChange} />
-        <PreferenceSettings preferences={preferences} onChange={onPreferencesChange} />
+        <div className="lg:col-span-2">
+          <PreferenceSettings preferences={preferences} onChange={onPreferencesChange} />
+        </div>
       </div>
     </section>
   )

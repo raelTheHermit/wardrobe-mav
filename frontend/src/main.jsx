@@ -10,7 +10,7 @@ registerSW({
     console.info('PWA update available. Refresh to apply the newest build.')
   },
   onOfflineReady() {
-    console.info('Wardrobe AI is ready to work offline.')
+    console.info('Fitzii is ready to work offline.')
   },
 })
 
