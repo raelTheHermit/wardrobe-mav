@@ -7,7 +7,10 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['vite.svg'],
+      includeAssets: ['wardrobe-ai-icon.svg'],
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+      },
       manifest: {
         name: 'Wardrobe AI',
         short_name: 'WardrobeAI',
@@ -16,9 +19,10 @@ export default defineConfig({
         background_color: '#f8fafc',
         display: 'standalone',
         start_url: '/',
+        scope: '/',
         icons: [
           {
-            src: '/vite.svg',
+            src: '/wardrobe-ai-icon.svg',
             sizes: 'any',
             type: 'image/svg+xml',
             purpose: 'any maskable',

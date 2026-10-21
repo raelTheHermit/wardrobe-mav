@@ -55,6 +55,34 @@ button:hover {
   font-size: clamp(1.6rem, 2vw, 2.2rem);
 }
 
+.account-badge {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #eef2ff;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+
+.account-badge strong {
+  color: #111827;
+  font-size: 1rem;
+}
+
+.account-badge small,
+.badge-label {
+  color: #475569;
+}
+
+.badge-label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .eyebrow {
   margin: 0 0 8px;
   font-size: 0.72rem;
@@ -79,6 +107,10 @@ button:hover {
   text-align: left;
   padding: 11px 12px;
   cursor: pointer;
+}
+
+.full-width {
+  width: 100%;
 }
 
 .nav-link.active {
@@ -455,8 +487,21 @@ button:hover {
   flex-wrap: wrap;
 }
 
-.tutorial-panel {
-  max-width: 620px;
+.account-panel {
+  max-width: 540px;
+}
+
+.tutorial-tray {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: min(420px, calc(100vw - 32px));
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 22px;
+  box-shadow: 0 24px 52px rgba(15, 23, 42, 0.18);
+  padding: 18px 18px 14px;
+  z-index: 25;
 }
 
 .tutorial-header {
@@ -503,6 +548,20 @@ button:hover {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.notice {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  color: #334155;
+}
+
+.notice.error {
+  background: #fef2f2;
+  border-color: rgba(239, 68, 68, 0.2);
+  color: #991b1b;
 }
 
 .right-aligned {
@@ -594,12 +653,6 @@ button:hover {
   border-radius: 10px;
 }
 
-.measurement-guide strong {
-  display: block;
-  font-size: 0.95rem;
-  color: #111827;
-}
-
 .measurement-guide small {
   display: block;
   margin-top: 4px;
@@ -628,23 +681,36 @@ button:hover {
 
 @media (max-width: 900px) {
   .app-shell {
-    display: block;
+    flex-direction: column;
   }
 
   .sidebar {
-    position: static;
-    width: auto;
+    position: relative;
+    width: 100%;
     min-height: auto;
     border-right: none;
     border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    padding: 18px 16px 14px;
+  }
+
+  .nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .main-panel {
-    padding: 20px 16px 40px;
+    padding: 18px 16px 80px;
   }
 
-  .page-header {
-    align-items: flex-start;
+  .page {
+    gap: 16px;
+  }
+
+  .tutorial-tray {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
   }
 
   .measurement-entry {
@@ -659,6 +725,34 @@ button:hover {
   .measurement-input-row,
   .measurement-meta-row {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .nav {
+    grid-template-columns: 1fr;
+  }
+
+  .page-header {
+    align-items: flex-start;
+  }
+
+  .outfit-summary,
+  .tutorial-actions {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .outfit-meta {
+    align-items: flex-start;
+  }
+
+  .button-row {
+    width: 100%;
+  }
+
+  .button-row > * {
+    flex: 1;
   }
 }
 

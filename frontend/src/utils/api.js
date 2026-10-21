@@ -1,3 +1,5 @@
+import { queuePendingOperation, isOnline } from './offlineSync.js'
+
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api').replace(/\/$/, '')
 const MEDIA_BASE = API_BASE.replace(/\/api$/, '')
 export const mediaUrl = (path) => path?.startsWith('/media/') ? `${MEDIA_BASE}${path}` : path
@@ -15,6 +17,8 @@ export class ApiError extends Error {
 export async function apiRequest(path, options = {}) {
   const url = `${API_BASE}${path}`
   const headers = { ...options.headers }
+  const method = (options.method || 'GET').toUpperCase()
+  const shouldQueue = !options._sync && method !== 'GET' && method !== 'HEAD' && !(options.body instanceof FormData)
 
   // Only set JSON Content-Type when sending a JSON body.
   // Do not set it for GET requests or FormData uploads.
@@ -28,6 +32,12 @@ export async function apiRequest(path, options = {}) {
     headers['Content-Type'] = 'application/json'
   }
 
+  if (!isOnline() && shouldQueue) {
+    const queuedBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body
+    queuePendingOperation({ path, method, headers, body: queuedBody })
+    return null
+  }
+
   let response
 
   try {
@@ -36,6 +46,12 @@ export async function apiRequest(path, options = {}) {
       headers,
     })
   } catch (error) {
+    if (shouldQueue) {
+      const queuedBody = typeof options.body === 'string' ? JSON.parse(options.body) : options.body
+      queuePendingOperation({ path, method, headers, body: queuedBody })
+      return null
+    }
+
     console.error('API network error:', {
       url,
       message: error.message,

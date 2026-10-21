@@ -3,6 +3,9 @@ const STORAGE_KEYS = {
   outfits: 'wardrobe-ai.saved-outfits',
   history: 'wardrobe-ai.history',
   tutorialSeen: 'wardrobe-ai.tutorial-seen',
+  account: 'wardrobe-ai.account',
+  accounts: 'wardrobe-ai.accounts',
+  pendingOps: 'wardrobe-ai.pending-ops',
 }
 
 export function loadFromStorage(key, fallback) {
