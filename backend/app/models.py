@@ -10,8 +10,21 @@ outfit_garments = db.Table('outfit_garment',
 def now_utc():
     return datetime.now(timezone.utc)
 
+class UserAccount(db.Model):
+    __tablename__ = 'user_account'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    display_name = db.Column(db.String(120), nullable=False, default='Fitzii User')
+    is_demo = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc, onupdate=now_utc)
+    garments = db.relationship('Garment', backref='owner_account', lazy='dynamic')
+    profiles = db.relationship('UserProfile', back_populates='account', uselist=False)
+
 class Garment(db.Model):
     id = db.Column(db.String(100), primary_key=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('user_account.id'), nullable=False, index=True, default=1)
     name = db.Column(db.String(160), nullable=False)
     category = db.Column(db.String(40), nullable=False, index=True)
     type = db.Column(db.String(80))
@@ -37,6 +50,7 @@ class Garment(db.Model):
 
 class UserProfile(db.Model):
     id = db.Column(db.Integer, primary_key=True, default=1)
+    account_id = db.Column(db.Integer, db.ForeignKey('user_account.id'), nullable=True, index=True)
     height = db.Column(db.Float)
     height_unit = db.Column(db.String(8), default='cm')
     weight = db.Column(db.Float)
@@ -46,6 +60,7 @@ class UserProfile(db.Model):
     notes = db.Column(db.Text)
     extra = db.Column(JSONB, nullable=False, default=dict)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc, onupdate=now_utc)
+    account = db.relationship('UserAccount', back_populates='profiles')
 
 class Preferences(db.Model):
     id = db.Column(db.Integer, primary_key=True, default=1)

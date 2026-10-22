@@ -6,9 +6,33 @@ from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
+from werkzeug.security import generate_password_hash
 
 db = SQLAlchemy()
 migrate = Migrate()
+
+def ensure_default_account():
+    from .models import Garment, UserAccount, UserProfile
+
+    account = UserAccount.query.filter_by(username='rael').first()
+    if account is None:
+        account = UserAccount(
+            username='rael',
+            password_hash=generate_password_hash('zara'),
+            display_name='Rael',
+            is_demo=False,
+        )
+        db.session.add(account)
+        db.session.flush()
+
+    for garment in Garment.query.filter((Garment.account_id.is_(None)) | (Garment.account_id != account.id)).all():
+        garment.account_id = account.id
+
+    profile = UserProfile.query.get(1)
+    if profile is not None and profile.account_id != account.id:
+        profile.account_id = account.id
+
+    db.session.commit()
 
 def create_app(test_config=None):
     load_dotenv(Path(__file__).resolve().parents[1] / '.env')
@@ -38,6 +62,8 @@ def create_app(test_config=None):
 
     from . import models
     from .routes import api
+    with app.app_context():
+        ensure_default_account()
     app.register_blueprint(api, url_prefix='/api')
 
     @app.get('/media/<path:filename>')

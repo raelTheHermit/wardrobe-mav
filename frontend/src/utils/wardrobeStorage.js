@@ -1,4 +1,5 @@
 import wardrobeSeed from '../data/wardrobe.json'
+import guestWardrobeSeed from '../data/guestWardrobe.json'
 
 const DB_NAME = 'wardrobe-ai-db'
 const STORE_NAME = 'garments'
@@ -12,7 +13,25 @@ function isBrowser() {
   return typeof window !== 'undefined'
 }
 
+function getStoredAccount() {
+  if (!isBrowser()) return null
+  try {
+    const raw = window.localStorage.getItem('wardrobe-ai.account')
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
 function getSeedGarments() {
+  if (typeof window !== 'undefined') {
+    const account = getStoredAccount()
+    if (!account) {
+      const guestSource = Array.isArray(guestWardrobeSeed?.items) ? guestWardrobeSeed.items : guestWardrobeSeed
+      return Array.isArray(guestSource) ? guestSource : []
+    }
+  }
+
   const source = Array.isArray(wardrobeSeed?.items) ? wardrobeSeed.items : wardrobeSeed
   return Array.isArray(source) ? source : []
 }
