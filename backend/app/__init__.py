@@ -49,12 +49,21 @@ def create_app(test_config=None):
     )
     if test_config:
         app.config.update(test_config)
+    allowed_origins = [
+        origin.strip()
+        for origin in os.getenv(
+            'FRONTEND_ORIGIN',
+            'http://localhost:5173,https://fitzii.vercel.app,https://www.fitzii.vercel.app,https://app-nu-seven-87.vercel.app'
+        ).split(',')
+        if origin.strip()
+    ]
+
     CORS(
         app,
-        resources={r"/api/*": {"origins": [
-            "https://app-nu-seven-87.vercel.app",
-            "http://localhost:5173",
-        ]}}
+        resources={r"/api/*": {"origins": allowed_origins}},
+        supports_credentials=True,
+        allow_headers=['Content-Type', 'Authorization'],
+        methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     )
     db.init_app(app)
     migrate.init_app(app, db)
