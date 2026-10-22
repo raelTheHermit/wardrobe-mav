@@ -6,9 +6,10 @@ import uuid
 from pathlib import Path
 from flask import Blueprint, current_app, jsonify, request
 from marshmallow import Schema, fields, ValidationError, INCLUDE
+from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 from . import db
-from .models import Garment, OutfitHistory, Preferences, UserProfile
+from .models import Garment, OutfitHistory, Preferences, UserAccount, UserProfile
 
 api = Blueprint('api', __name__)
 ALLOWED = {'jpg', 'jpeg', 'png', 'webp', 'avif'}
@@ -129,6 +130,69 @@ def upload_image(garment_id):
     g.source_hash = hashlib.sha256((Path(current_app.config['MEDIA_DIR']) / safe).read_bytes()).hexdigest()
     db.session.commit()
     return jsonify(item=record(g))
+
+@api.get('/accounts')
+def list_accounts():
+    accounts = UserAccount.query.order_by(UserAccount.created_at.asc()).all()
+    return jsonify(accounts=[{
+        'id': account.id,
+        'username': account.username,
+        'displayName': account.display_name,
+        'isDemo': account.is_demo,
+        'createdAt': account.created_at.isoformat() if account.created_at else None,
+    } for account in accounts])
+
+
+@api.post('/accounts')
+def create_account():
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username', '')).strip()
+    password = str(data.get('password', ''))
+    display_name = str(data.get('displayName') or data.get('name') or username).strip() or 'Fitzii User'
+
+    if not username:
+        return error('Username is required.', 'validation_error', 400)
+    if len(password) < 6:
+        return error('Password must be at least 6 characters.', 'validation_error', 400)
+    if UserAccount.query.filter_by(username=username).first():
+        return error('Username already exists.', 'conflict', 409)
+
+    account = UserAccount(
+        username=username,
+        password_hash=generate_password_hash(password),
+        display_name=display_name,
+        is_demo=False,
+    )
+    db.session.add(account)
+    db.session.commit()
+    return jsonify(account={
+        'id': account.id,
+        'username': account.username,
+        'displayName': account.display_name,
+        'isDemo': account.is_demo,
+    }), 201
+
+
+@api.post('/login')
+def login_account():
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username', '')).strip()
+    password = str(data.get('password', ''))
+
+    if not username or not password:
+        return error('Username and password are required.', 'validation_error', 400)
+
+    account = UserAccount.query.filter_by(username=username).first()
+    if not account or not check_password_hash(account.password_hash, password):
+        return error('Invalid username or password.', 'auth_error', 401)
+
+    return jsonify(account={
+        'id': account.id,
+        'username': account.username,
+        'displayName': account.display_name,
+        'isDemo': account.is_demo,
+    })
+
 
 @api.get('/profile')
 def get_profile():
