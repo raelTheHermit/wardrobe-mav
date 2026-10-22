@@ -12,39 +12,6 @@ db = SQLAlchemy()
 migrate = Migrate()
 
 
-def ensure_default_account():
-    from .models import Garment, UserAccount, UserProfile
-
-    try:
-        inspector = db.inspect(db.engine)
-    except Exception:
-        return
-
-    if not inspector.has_table('user_account'):
-        return
-
-    account = UserAccount.query.filter_by(username='rael').first()
-    if account is None:
-        account = UserAccount(
-            username='rael',
-            password_hash=generate_password_hash('zara'),
-            display_name='Rael',
-            is_demo=False,
-        )
-        db.session.add(account)
-        db.session.flush()
-
-    if inspector.has_table('garment') and Garment.__table__.columns.get('account_id') is not None:
-        for garment in Garment.query.filter((Garment.account_id.is_(None)) | (Garment.account_id != account.id)).all():
-            garment.account_id = account.id
-
-    if inspector.has_table('user_profile') and UserProfile.__table__.columns.get('account_id') is not None:
-        profile = UserProfile.query.get(1)
-        if profile is not None and profile.account_id != account.id:
-            profile.account_id = account.id
-
-    db.session.commit()
-
 def create_app(test_config=None):
     load_dotenv(Path(__file__).resolve().parents[1] / '.env')
     app = Flask(__name__)
@@ -85,7 +52,6 @@ def create_app(test_config=None):
     with app.app_context():
         if app.config.get('TESTING') or str(app.config.get('SQLALCHEMY_DATABASE_URI', '')).startswith('sqlite'):
             db.create_all()
-        ensure_default_account()
     app.register_blueprint(api, url_prefix='/api')
 
     @app.get('/media/<path:filename>')

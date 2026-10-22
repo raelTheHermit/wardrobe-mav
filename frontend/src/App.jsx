@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import AuthFlow from './components/AuthFlow.jsx'
+import Onboarding from './components/Onboarding.jsx'
 import Today from './pages/Today.jsx'
 import Wardrobe from './pages/Wardrobe.jsx'
 import Explore from './pages/Explore.jsx'
@@ -76,8 +78,13 @@ function App() {
   const [history, setHistory] = useState([])
   const [selectedGarment, setSelectedGarment] = useState(null)
   const [profile, setProfile] = useState(createDefaultProfile())
-  const [account, setAccount] = useState(() => loadFromStorage(storageKeys.account, demoAccount))
-  const [showWelcomeModal, setShowWelcomeModal] = useState(() => !loadFromStorage(storageKeys.introSeen, false))
+  const [account, setAccount] = useState(() => loadFromStorage(storageKeys.account, null))
+  const [stage, setStage] = useState(() => {
+    const activeAccount = loadFromStorage(storageKeys.account, null)
+    const guestMode = loadFromStorage('fitzii.guest', false)
+    return activeAccount || guestMode ? 'app' : 'auth'
+  })
+  const [showTutorial, setShowTutorial] = useState(false)
   const [apiError, setApiError] = useState('')
   const [isOffline, setIsOffline] = useState(typeof navigator === 'undefined' ? false : !navigator.onLine)
   const [isLoading, setIsLoading] = useState(true)
@@ -87,7 +94,7 @@ function App() {
   useEffect(() => {
     const storedSaved = loadFromStorage(storageKeys.outfits, [])
     const existingHistory = loadFromStorage(storageKeys.history, [])
-    const activeAccount = loadFromStorage(storageKeys.account, demoAccount)
+    const activeAccount = loadFromStorage(storageKeys.account, null)
     const localWardrobe = loadFromStorage(storageKeys.wardrobe, guestWardrobeSeed)
     const localProfile = loadFromStorage(storageKeys.profile, createDefaultProfile())
     const localPreferences = loadFromStorage(storageKeys.preferences, defaultPreferences)
@@ -158,9 +165,101 @@ function App() {
     saveToStorage(storageKeys.history, [{ items: entry.outfit, timestamp }, ...history].slice(0, 12))
   }
 
+  const handleSignUp = ({ name, username, password }) => {
+    const cleanedUsername = String(username || name || '').trim()
+    const next = {
+      id: crypto.randomUUID?.() || `account-${Date.now()}`,
+      name: String(name || '').trim(),
+      username: cleanedUsername,
+      password,
+    }
+    const saved = loadFromStorage(storageKeys.accounts, [])
+    const nextAccounts = [...(Array.isArray(saved) ? saved : []), next]
+    saveToStorage(storageKeys.accounts, nextAccounts)
+    saveToStorage(storageKeys.account, next)
+    setAccount(next)
+    setStage('onboarding')
+  }
+
+  const handleLogin = (identifier, password) => {
+    const saved = loadFromStorage(storageKeys.accounts, [])
+    const normalizedIdentifier = String(identifier || '').trim().toLowerCase()
+    const normalizedPassword = String(password || '')
+
+    const found = (Array.isArray(saved) ? saved : []).find((account) => {
+      const accountUsername = String(account.username || account.name || account.email || '').trim().toLowerCase()
+      const accountName = String(account.name || '').trim().toLowerCase()
+      const accountEmail = String(account.email || '').trim().toLowerCase()
+      const storedPassword = String(account.password || '')
+
+      const matchesIdentifier = accountUsername === normalizedIdentifier || accountName === normalizedIdentifier || accountEmail === normalizedIdentifier
+      const matchesPassword = !storedPassword || storedPassword === normalizedPassword
+
+      return matchesIdentifier && matchesPassword
+    })
+
+    if (!found) return false
+
+    const nextAccount = { ...found, password: found.password || normalizedPassword }
+    saveToStorage(storageKeys.account, nextAccount)
+    setAccount(nextAccount)
+    setStage('app')
+    setPage('today')
+    return true
+  }
+
+  const handleResetPassword = ({ username, password }) => {
+    const saved = loadFromStorage(storageKeys.accounts, [])
+    const normalizedUsername = String(username || '').trim().toLowerCase()
+    const nextAccounts = (Array.isArray(saved) ? saved : []).map((account) => {
+      const accountUsername = String(account.username || account.name || account.email || '').trim().toLowerCase()
+      if (accountUsername === normalizedUsername) {
+        return { ...account, password }
+      }
+      return account
+    })
+
+    if (!nextAccounts.some((account) => {
+      const accountUsername = String(account.username || account.name || account.email || '').trim().toLowerCase()
+      return accountUsername === normalizedUsername
+    })) {
+      return false
+    }
+
+    saveToStorage(storageKeys.accounts, nextAccounts)
+    const active = loadFromStorage(storageKeys.account, null)
+    if (active) {
+      const activeUsername = String(active.username || active.name || active.email || '').trim().toLowerCase()
+      if (activeUsername === normalizedUsername) {
+        saveToStorage(storageKeys.account, { ...active, password })
+      }
+    }
+    return true
+  }
+
+  const handleGuest = () => {
+    saveToStorage('fitzii.guest', true)
+    setStage('app')
+    setPage('today')
+  }
+
+  const handleOnboardingFinish = ({ aesthetic: nextAesthetic, preferences: nextPrefs }) => {
+    setAesthetic(nextAesthetic)
+    persistPreferences(nextPrefs)
+    setStage('app')
+    setShowTutorial(true)
+    setPage('today')
+  }
+
+  const handleSignOut = () => {
+    saveToStorage(storageKeys.account, null)
+    saveToStorage('fitzii.guest', false)
+    setAccount(null)
+    setStage('auth')
+  }
+
   const handleOpenApp = () => {
     saveToStorage(storageKeys.introSeen, true)
-    setShowWelcomeModal(false)
     setPage('today')
   }
 
@@ -241,6 +340,27 @@ function App() {
   }
 
   const notice = 'rounded-xl border px-4 py-3 text-sm'
+  const savedAccounts = loadFromStorage(storageKeys.accounts, [])
+
+  if (stage === 'auth') {
+    return <AuthFlow accounts={savedAccounts} onSignUp={handleSignUp} onLogin={handleLogin} onResetPassword={handleResetPassword} onGuest={handleGuest} />
+  }
+
+  if (stage === 'onboarding') {
+    return (
+      <Onboarding
+        name={account?.name || 'there'}
+        initialPreferences={preferences}
+        initialAesthetic={aesthetic}
+        onFinish={handleOnboardingFinish}
+        onSkip={() => {
+          setStage('app')
+          setPage('today')
+          setShowTutorial(true)
+        }}
+      />
+    )
+  }
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[272px_1fr]">
@@ -272,8 +392,8 @@ function App() {
         </nav>
 
         <div className="flex flex-col gap-2">
-          <button type="button" className="rounded-lg bg-accent-soft px-4 py-2.5 text-sm font-semibold text-accent transition hover:bg-violet-200" onClick={() => setShowWelcomeModal(true)}>
-            Show welcome note
+          <button type="button" className="rounded-lg bg-accent-soft px-4 py-2.5 text-sm font-semibold text-accent transition hover:bg-violet-200" onClick={account ? handleSignOut : () => setStage('auth')}>
+            {account ? 'Log out' : 'Create account'}
           </button>
         </div>
 
@@ -295,6 +415,25 @@ function App() {
       </aside>
 
       <main className="mx-auto w-full max-w-6xl space-y-6 p-5 sm:p-8">
+        {!account ? (
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+            <span>Guest mode is active. Your data stays in this browser.</span>
+            <button type="button" className="rounded-full bg-violet-600 px-3 py-1.5 font-semibold text-white" onClick={() => setStage('auth')}>Create account</button>
+          </div>
+        ) : null}
+        {showTutorial ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-sm font-semibold text-slate-900">Quick start</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              {['Pick your context', 'Tune your aesthetic', 'Save your favorite outfits'].map((item, index) => (
+                <div key={item} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-700">{index + 1}</span>
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {apiError ? <div className={`${notice} border-rose-200 bg-rose-50 text-rose-800`} role="alert">{apiError}</div> : null}
         {isOffline ? <div className={`${notice} border-amber-200 bg-amber-50 text-amber-900`} role="status">Offline mode is on. Your changes will sync automatically when the connection returns.</div> : null}
         {isLoading ? <div className={`${notice} border-slate-200 bg-white text-slate-600`} role="status">Connecting to your wardrobe…</div> : null}
@@ -374,31 +513,6 @@ function App() {
         ) : null}
       </main>
 
-      {showWelcomeModal ? (
-        <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/35 p-3 sm:p-6" onClick={() => setShowWelcomeModal(false)}>
-          <div className="flex h-full w-full max-w-md items-center" onClick={(event) => event.stopPropagation()}>
-            <div className="w-full rounded-[28px] border border-violet-200 bg-white p-6 shadow-[0_30px_80px_rgba(15,23,42,0.18)] sm:p-7">
-              <div className="mb-4 flex items-center justify-between">
-                <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-violet-700">Fitzii</span>
-                <button type="button" className="text-sm font-medium text-slate-500 hover:text-slate-700" onClick={() => setShowWelcomeModal(false)}>Close</button>
-              </div>
-
-              <h2 className="text-3xl font-bold leading-tight tracking-tight text-slate-900">Welcome in.</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-600">
-                Not everyone has the fashion sense to dress their best, so I built Fitzii for myself: a personal styling helper that turns a messy closet into easy outfit decisions.
-              </p>
-
-              <div className="mt-5 space-y-2 text-sm text-slate-700">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">• See what fits your style on the Today page.</div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">• Browse your local wardrobe and saved outfit ideas.</div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">• Use the body profile and preferences to tune your fit.</div>
-              </div>
-
-              <button type="button" className="btn-primary mt-6 w-full" onClick={handleOpenApp}>Enter the app</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }
