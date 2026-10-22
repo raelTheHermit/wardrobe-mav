@@ -320,8 +320,13 @@ function App() {
               outfits={recommendedOutfits}
               aestheticOutfits={aestheticOutfits}
               currentContext={context}
-              preferences={preferences}
+              currentAesthetic={aesthetic}
+              formalityBias={preferences.formalityBias || 3}
+              onContextChange={setContext}
+              onAestheticChange={setAesthetic}
+              onFormalityChange={(value) => persistPreferences({ ...preferences, formalityBias: value })}
               onSaveOutfit={handleSaveOutfit}
+              savedCount={savedOutfits.length}
             />
           </>
         ) : null}
