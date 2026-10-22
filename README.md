@@ -24,22 +24,53 @@ The main dashboard puts that story front and center: the Today screen shows a fo
 
 Fitzii does not rely on a black-box model. It applies explicit style rules and weighted checks to each outfit candidate.
 
-A simple way to think about it is:
+The core idea is:
 
 - a + b = 100
-- a = the outfit’s fit, compatibility, and context score
-- b = the style preference and personal fit score
+- a = the outfit quality score from fit, context, and compatibility
+- b = the personal preference and style score from your profile, history, and taste
 
-In practice, the engine combines many sub-factors such as:
+In practice, the app adds several sub-scores together before capping the result to a believable range:
 
 - silhouette compatibility
 - color harmony
 - occasion or context match
 - formality balance
 - garment variety and coordination
-- personal style preference weighting
+- personal fit and body-measurement alignment
+- preferred style and aesthetic weighting
 
-The result is a single score for each outfit recommendation, plus a breakdown so the user can see why a look rose to the top.
+The engine then ranks candidates with a total score like this:
+
+```text
+final score = compatibility × 0.30
+            + context × 0.20
+            + personal preference × 0.15
+            + silhouette × 0.10
+            + aesthetic × 0.25
+            + fit × 0.09
+            + novelty × 0.03
+```
+
+A concrete example:
+
+```text
+compatibility = 0.82
+context = 0.90
+personal = 0.74
+silhouette = 0.76
+aesthetic = 0.81
+fit = 0.88
+novelty = 0.43
+
+score = (0.82 × 0.30) + (0.90 × 0.20) + (0.74 × 0.15) + (0.76 × 0.10)
+      + (0.81 × 0.25) + (0.88 × 0.09) + (0.43 × 0.03)
+      = 0.78
+```
+
+That number is then normalized so the top outfit is easy to compare against the next-best option. Each card also shows a breakdown so a user can see whether a look won because of fit, style, color, occasion, or silhouette.
+
+The fit score specifically compares the profile measurements such as chest, waist, hip, and inseam to the garment’s measurements and size labels. If a garment is clearly too large or too tight for the user, its fit score drops before the final outfit ranking is calculated.
 
 ## Project layout
 

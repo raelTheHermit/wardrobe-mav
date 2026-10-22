@@ -5,7 +5,7 @@ import Explore from './pages/Explore.jsx'
 import Preferences from './pages/Preferences.jsx'
 import MyProfile from './pages/MyProfile.jsx'
 import { loadFromStorage, saveToStorage, storageKeys } from './utils/storage.js'
-import { createDefaultProfile } from './utils/bodyProfile.js'
+import { buildFitCompatibility, createDefaultProfile } from './utils/bodyProfile.js'
 import guestWardrobeSeed from './data/guestWardrobe.json'
 import { exportWardrobePayload, importWardrobeRecords } from './utils/wardrobeStorage.js'
 
@@ -34,13 +34,14 @@ function generateLocalOutfits(garments, context, preferences, aesthetic, profile
       for (const shoe of shoeOptions.length ? shoeOptions : available.slice(0, 1)) {
         const layers = [...outerwear.slice(0, 2), ...[]]
         const outfit = [top, bottom, shoe, ...layers].slice(0, 4)
+        const fitScore = buildFitCompatibility(outfit, profile)
         const base = {
           style: preferences.styles?.includes(top.style) ? 0.22 : 0.08,
           color: preferences.colors?.includes(top.color) || preferences.colors?.includes(bottom.color) ? 0.18 : 0.07,
           material: preferences.materials?.includes(top.material) || preferences.materials?.includes(bottom.material) ? 0.17 : 0.06,
           context: (top.occasion === context || bottom.occasion === context || shoe.occasion === context) ? 0.18 : 0.08,
           aesthetic: top.aesthetic === aesthetic || bottom.aesthetic === aesthetic ? 0.18 : 0.06,
-          fit: profile?.fitPreferences?.tops === 'regular' && top.fit === 'regular' ? 0.12 : 0.07,
+          fit: fitScore,
         }
 
         const score = Math.min(0.99, 0.38 + Object.values(base).reduce((sum, value) => sum + value, 0))
