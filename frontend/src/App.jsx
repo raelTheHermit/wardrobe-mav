@@ -10,6 +10,7 @@ import { loadFromStorage, saveToStorage, storageKeys } from './utils/storage.js'
 import { buildFitCompatibility, createDefaultProfile } from './utils/bodyProfile.js'
 import guestWardrobeSeed from './data/guestWardrobe.json'
 import { exportWardrobePayload, importWardrobeRecords } from './utils/wardrobeStorage.js'
+import { apiRequest } from './utils/api.js'
 
 const demoAccount = { id: 'demo-guest', name: 'Rael', email: 'guest@fitzii.local', guest: true }
 const demoPreferences = {
@@ -165,7 +166,7 @@ function App() {
     saveToStorage(storageKeys.history, [{ items: entry.outfit, timestamp }, ...history].slice(0, 12))
   }
 
-  const handleSignUp = ({ name, username, password }) => {
+  const handleSignUp = async ({ name, username, password }) => {
     const cleanedUsername = String(username || name || '').trim()
     const next = {
       id: crypto.randomUUID?.() || `account-${Date.now()}`,
@@ -173,6 +174,37 @@ function App() {
       username: cleanedUsername,
       password,
     }
+
+    try {
+      const response = await apiRequest('/accounts', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: cleanedUsername,
+          password,
+          name: String(name || '').trim(),
+        }),
+      })
+
+      const remoteUser = response?.account
+      if (remoteUser) {
+        const remoteAccount = {
+          id: remoteUser.id,
+          name: remoteUser.displayName || String(name || '').trim(),
+          username: remoteUser.username || cleanedUsername,
+          password,
+        }
+        const saved = loadFromStorage(storageKeys.accounts, [])
+        const nextAccounts = [...(Array.isArray(saved) ? saved : []), remoteAccount]
+        saveToStorage(storageKeys.accounts, nextAccounts)
+        saveToStorage(storageKeys.account, remoteAccount)
+        setAccount(remoteAccount)
+        setStage('onboarding')
+        return
+      }
+    } catch (error) {
+      console.warn('Backend account creation failed, falling back to local storage.', error)
+    }
+
     const saved = loadFromStorage(storageKeys.accounts, [])
     const nextAccounts = [...(Array.isArray(saved) ? saved : []), next]
     saveToStorage(storageKeys.accounts, nextAccounts)
@@ -181,18 +213,44 @@ function App() {
     setStage('onboarding')
   }
 
-  const handleLogin = (identifier, password) => {
-    const saved = loadFromStorage(storageKeys.accounts, [])
-    const normalizedIdentifier = String(identifier || '').trim().toLowerCase()
+  const handleLogin = async (identifier, password) => {
+    const trimmedIdentifier = String(identifier || '').trim()
     const normalizedPassword = String(password || '')
 
+    try {
+      const response = await apiRequest('/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: trimmedIdentifier,
+          password: normalizedPassword,
+        }),
+      })
+
+      if (response?.account) {
+        const nextAccount = {
+          id: response.account.id,
+          name: response.account.displayName || trimmedIdentifier,
+          username: response.account.username || trimmedIdentifier,
+          password: normalizedPassword,
+        }
+        saveToStorage(storageKeys.account, nextAccount)
+        setAccount(nextAccount)
+        setStage('app')
+        setPage('today')
+        return true
+      }
+    } catch (error) {
+      console.warn('Backend login failed, checking local fallback.', error)
+    }
+
+    const saved = loadFromStorage(storageKeys.accounts, [])
     const found = (Array.isArray(saved) ? saved : []).find((account) => {
       const accountUsername = String(account.username || account.name || account.email || '').trim().toLowerCase()
       const accountName = String(account.name || '').trim().toLowerCase()
       const accountEmail = String(account.email || '').trim().toLowerCase()
       const storedPassword = String(account.password || '')
 
-      const matchesIdentifier = accountUsername === normalizedIdentifier || accountName === normalizedIdentifier || accountEmail === normalizedIdentifier
+      const matchesIdentifier = accountUsername === trimmedIdentifier.toLowerCase() || accountName === trimmedIdentifier.toLowerCase() || accountEmail === trimmedIdentifier.toLowerCase()
       const matchesPassword = !storedPassword || storedPassword === normalizedPassword
 
       return matchesIdentifier && matchesPassword
