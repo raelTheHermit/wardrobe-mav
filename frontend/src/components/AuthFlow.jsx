@@ -1,6 +1,7 @@
-import { authApi, apiRequest } from './api.js'
-import { syncQueuedOperations } from './offlineSync.js'
-import { getStorageUser, loadScoped, saveScoped } from './userStorage.js'
+import { useEffect, useRef, useState } from 'react'
+import { authApi, apiRequest } from '../utils/api.js'
+import { syncQueuedOperations } from '../utils/offlineSync.js'
+import { getStorageUser, loadScoped, saveScoped } from '../utils/userStorage.js'
 
 export function readCache() {
   return {
