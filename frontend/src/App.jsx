@@ -7,9 +7,8 @@ import Explore from './pages/Explore.jsx'
 import Preferences from './pages/Preferences.jsx'
 import MyProfile from './pages/MyProfile.jsx'
 import { buildFitCompatibility, createDefaultProfile } from './utils/bodyProfile.js'
-import guestWardrobeSeed from './data/guestWardrobe.json'
 import { exportWardrobePayload } from './utils/wardrobeStorage.js'
-import { apiRequest, authApi, setUnauthorizedHandler } from './utils/api.js'
+import { authApi, wardrobeApi, setUnauthorizedHandler } from './utils/api.js'
 import { pendingCount } from './utils/offlineSync.js'
 import {
   clearUserData,
@@ -23,14 +22,12 @@ import {
 } from './utils/userStorage.js'
 import { readCache, syncNow } from './utils/syncData.js'
 
-const demoPreferences = {
+const defaultPreferences = {
   styles: ['minimal', 'classic'],
   colors: ['ivory', 'navy', 'olive'],
   materials: ['cotton', 'linen', 'denim'],
   formalityBias: 3,
 }
-
-const defaultPreferences = demoPreferences
 
 function generateLocalOutfits(garments, context, preferences, aesthetic, profile) {
   const available = garments.filter((item) => (item.status || 'available') === 'available')
@@ -90,12 +87,11 @@ function App() {
   const [selectedGarment, setSelectedGarment] = useState(null)
   const [profile, setProfile] = useState(createDefaultProfile())
   const [account, setAccount] = useState(null)
-  const [stage, setStage] = useState('booting')
+  const [stage, setStage] = useState('booting') // booting | auth | syncing | onboarding | app
   const [hydrated, setHydrated] = useState(false)
   const [showTutorial, setShowTutorial] = useState(false)
   const [apiError, setApiError] = useState('')
   const [isOffline, setIsOffline] = useState(typeof navigator === 'undefined' ? false : !navigator.onLine)
-  const [isLoading, setIsLoading] = useState(true)
   const [recommendedOutfits, setRecommendedOutfits] = useState([])
   const [aestheticOutfits, setAestheticOutfits] = useState([])
 
@@ -103,24 +99,40 @@ function App() {
     setGarments(d.garments || [])
     if (d.profile && Object.keys(d.profile).length) setProfile(d.profile)
     if (d.preferences && Object.keys(d.preferences).length) setPreferences(d.preferences)
-    setHistory((d.history || []).map((row) => ({ items: row.garmentIds || row.items || [], timestamp: new Date(row.createdAt || row.timestamp || Date.now()).getTime() })))
+    setHistory(
+      (d.history || []).map((row) => ({
+        items: row.garmentIds || row.items || [],
+        timestamp: new Date(row.createdAt || row.timestamp || Date.now()).getTime(),
+      })),
+    )
   }
 
-  const enterAccount = async (user) => {
-    rememberUser(user)
-    setStorageUser(user.id)
-    setAccount(user)
-    setStage('syncing')
-    setIsLoading(false)
-    setSavedOutfits(loadScoped('savedOutfits', []))
-    applyData(readCache())
-    setHydrated(true)
-
+  const runSync = async () => {
     try {
       const result = await syncNow()
       if (result.data) applyData(result.data)
     } catch (error) {
-      setApiError(error.message)
+      if (typeof navigator === 'undefined' || navigator.onLine) setApiError(error.message)
+    }
+  }
+
+  // Puts a logged-in user's cached data on screen, then syncs with the server.
+  // background=true (app start): show the cache immediately and sync behind it.
+  // background=false (login / sign-up): show the "Syncing" screen until done.
+  const enterAccount = async (user, { background = false } = {}) => {
+    rememberUser(user)
+    setStorageUser(user.id)
+    setAccount(user)
+    setSavedOutfits(loadScoped('savedOutfits', []))
+    applyData(readCache())
+    setHydrated(true)
+
+    if (background) {
+      setStage('app')
+      runSync()
+    } else {
+      setStage('syncing')
+      await runSync()
     }
   }
 
@@ -137,19 +149,14 @@ function App() {
       try {
         user = await authApi.me()
       } catch {
-        user = getRememberedUser()
+        user = getRememberedUser() // offline: reopen as the last user
       }
-
       if (!active) return
       if (!user) {
         setStage('auth')
-        setIsLoading(false)
         return
       }
-
-      await enterAccount(user)
-      setStage('app')
-      setIsLoading(false)
+      await enterAccount(user, { background: true })
     })()
 
     return () => {
@@ -160,75 +167,56 @@ function App() {
   useEffect(() => {
     const handleOnline = () => {
       setIsOffline(false)
-      if (getStorageUser() === 'guest') return
-      syncNow().then((result) => {
-        if (result.data) applyData(result.data)
-      }).catch(() => undefined)
+      if (getStorageUser() === 'guest') return // nobody logged in yet
+      runSync()
     }
     const handleOffline = () => setIsOffline(true)
 
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
-    handleOnline()
-
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
 
-  useEffect(() => {
-    if (hydrated) saveScoped('wardrobe', garments)
-  }, [garments, hydrated])
+  // Keep the local cache current. Guarded by `hydrated` so boot never overwrites it with empty state.
+  useEffect(() => { if (hydrated) saveScoped('wardrobe', garments) }, [garments, hydrated])
+  useEffect(() => { if (hydrated) saveScoped('profile', profile) }, [profile, hydrated])
+  useEffect(() => { if (hydrated) saveScoped('preferences', preferences) }, [preferences, hydrated])
+  useEffect(() => { if (hydrated) saveScoped('savedOutfits', savedOutfits) }, [savedOutfits, hydrated])
 
   useEffect(() => {
-    if (hydrated) saveScoped('profile', profile)
-  }, [profile, hydrated])
-
-  useEffect(() => {
-    if (hydrated) saveScoped('preferences', preferences)
-  }, [preferences, hydrated])
-
-  useEffect(() => {
-    if (hydrated) saveScoped('savedOutfits', savedOutfits)
-  }, [savedOutfits, hydrated])
-
-  useEffect(() => {
-    if (hydrated) saveScoped('history', history)
-  }, [history, hydrated])
-
-  useEffect(() => {
-    if (!garments.length || stage !== 'app') return
-    const general = generateLocalOutfits(garments, context, preferences, aesthetic, profile)
-    const favorite = generateLocalOutfits(garments, context, { ...preferences, styles: [aesthetic] }, aesthetic, profile)
-    setRecommendedOutfits(general)
-    setAestheticOutfits(favorite)
+    if (stage !== 'app') return
+    if (!garments.length) {
+      setRecommendedOutfits([])
+      setAestheticOutfits([])
+      return
+    }
+    setRecommendedOutfits(generateLocalOutfits(garments, context, preferences, aesthetic, profile))
+    setAestheticOutfits(generateLocalOutfits(garments, context, { ...preferences, styles: [aesthetic] }, aesthetic, profile))
   }, [aesthetic, context, garments, preferences, profile, stage])
 
   const persistPreferences = (next) => {
     setPreferences(next)
-    saveScoped('preferences', next)
-    setApiError('')
+    wardrobeApi.savePreferences(next).then(() => setApiError('')).catch((error) => setApiError(error.message))
   }
 
   const handleSaveOutfit = (entry) => {
-    const nextSaved = [
-      {
-        id: `saved-${Date.now()}`,
-        createdAt: new Date().toISOString(),
-        outfit: entry.outfit,
+    setSavedOutfits((current) => [
+      { id: `saved-${Date.now()}`, createdAt: new Date().toISOString(), outfit: entry.outfit, score: entry.score },
+      ...current,
+    ].slice(0, 8))
+    setHistory((current) => [{ items: entry.outfit.map((item) => item.id), timestamp: Date.now() }, ...current].slice(0, 12))
+    wardrobeApi
+      .saveHistory({
+        garmentIds: entry.outfit.map((item) => item.id),
+        context,
+        mode: 'selected',
         score: entry.score,
-      },
-      ...savedOutfits,
-    ].slice(0, 8)
-
-    setSavedOutfits(nextSaved)
-    saveScoped('savedOutfits', nextSaved)
-
-    const timestamp = Date.now()
-    const nextHistory = [{ items: entry.outfit, timestamp }, ...history].slice(0, 12)
-    setHistory(nextHistory)
-    saveScoped('history', nextHistory)
+        scoreComponents: entry.breakdown,
+      })
+      .catch((error) => setApiError(error.message))
   }
 
   const handleSignUp = async ({ name, email, password }) => {
@@ -259,7 +247,7 @@ function App() {
     try {
       await authApi.logout()
     } catch {
-      // offline or auth failure: still clear local data
+      // offline or already expired: still log out locally
     }
 
     clearUserData(uid)
@@ -269,34 +257,58 @@ function App() {
     setGarments([])
     setHistory([])
     setSavedOutfits([])
+    setRecommendedOutfits([])
+    setAestheticOutfits([])
+    setSelectedGarment(null)
     setProfile(createDefaultProfile())
     setPreferences(defaultPreferences)
     setAccount(null)
+    setApiError('')
+    setPage('today')
     setStage('auth')
   }
 
+  // Garment writes: update the screen first, send to the API (queued automatically when offline),
+  // and roll back if the server rejects the change.
   const handleAddGarment = async (garment) => {
-    const normalized = { status: 'available', ...garment }
-    const saved = { ...normalized, id: normalized.id || `g-${Date.now()}` }
-    setGarments((current) => [saved, ...current])
-    saveScoped('wardrobe', [saved, ...garments])
-    setApiError('')
-    return saved
+    const item = { status: 'available', ...garment, id: garment.id || `g-${Date.now()}` }
+    setGarments((current) => [item, ...current])
+    try {
+      const saved = await wardrobeApi.create(item)
+      setGarments((current) => current.map((g) => (g.id === item.id ? saved : g)))
+      setApiError('')
+      return saved
+    } catch (error) {
+      if (error.status !== 401) setGarments((current) => current.filter((g) => g.id !== item.id))
+      setApiError(error.message)
+    }
   }
 
   const handleUpdateGarment = async (garment) => {
-    const saved = { ...garment, status: garment.status || 'available' }
-    setGarments((current) => current.map((item) => item.id === saved.id ? saved : item))
-    saveScoped('wardrobe', garments.map((item) => item.id === saved.id ? saved : item))
-    setApiError('')
-    return saved
+    const previous = garments.find((g) => g.id === garment.id)
+    const next = { ...garment, status: garment.status || 'available' }
+    setGarments((current) => current.map((g) => (g.id === next.id ? next : g)))
+    try {
+      const saved = await wardrobeApi.update(next)
+      setApiError('')
+      return saved
+    } catch (error) {
+      if (error.status !== 401 && previous) setGarments((current) => current.map((g) => (g.id === previous.id ? previous : g)))
+      setApiError(error.message)
+    }
   }
 
   const handleDeleteGarment = async (garmentId) => {
-    setGarments((current) => current.filter((item) => item.id !== garmentId))
-    saveScoped('wardrobe', garments.filter((item) => item.id !== garmentId))
-    setApiError('')
+    const previous = garments.find((g) => g.id === garmentId)
+    setGarments((current) => current.filter((g) => g.id !== garmentId))
     setSavedOutfits((current) => current.filter((entry) => !entry.outfit?.some((item) => item.id === garmentId)))
+    try {
+      await wardrobeApi.remove(garmentId)
+      setApiError('')
+    } catch (error) {
+      if (error.status !== 401 && previous) setGarments((current) => [previous, ...current])
+      setApiError(error.message)
+    }
   }
 
   const toggleGarmentAvailability = (garmentId, available = true) => {
@@ -322,27 +334,19 @@ function App() {
     if (!file) return
 
     try {
-      const text = await file.text()
-      const parsed = JSON.parse(text)
+      const parsed = JSON.parse(await file.text())
       const imported = Array.isArray(parsed?.garments) ? parsed.garments : Array.isArray(parsed) ? parsed : []
       if (!imported.length) {
         window.alert('Import failed: the selected file is not a valid wardrobe export.')
         return
       }
-
-      const merge = window.confirm(`Import ${imported.length} garments? Existing records with matching IDs will be kept.`)
-      if (!merge) return
+      if (!window.confirm(`Import ${imported.length} garments? Existing records with matching IDs will be kept.`)) return
 
       const currentIds = new Set(garments.map((item) => item.id))
-      const next = [...garments]
       for (const garment of imported) {
-        if (!currentIds.has(garment.id)) {
-          next.push({ ...garment, status: garment.status || 'available' })
-        }
+        if (currentIds.has(garment.id)) continue
+        await handleAddGarment({ ...garment, status: garment.status || 'available' })
       }
-
-      setGarments(next)
-      saveScoped('wardrobe', next)
     } catch (error) {
       console.error(error)
       window.alert('Import failed: the selected file is not a valid wardrobe export.')
@@ -435,7 +439,12 @@ function App() {
       <main className="mx-auto w-full max-w-6xl space-y-6 p-5 sm:p-8">
         {showTutorial ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-sm font-semibold text-slate-900">Quick start</p>
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-semibold text-slate-900">Quick start</p>
+              <button type="button" className="text-sm text-slate-500 hover:text-slate-900" onClick={() => setShowTutorial(false)} aria-label="Dismiss quick start">
+                Dismiss
+              </button>
+            </div>
             <div className="mt-3 grid gap-3 md:grid-cols-3">
               {['Pick your context', 'Tune your aesthetic', 'Save your favorite outfits'].map((item, index) => (
                 <div key={item} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
@@ -449,7 +458,6 @@ function App() {
 
         {apiError ? <div className={`${notice} border-rose-200 bg-rose-50 text-rose-800`} role="alert">{apiError}</div> : null}
         {isOffline ? <div className={`${notice} border-amber-200 bg-amber-50 text-amber-900`} role="status">Offline mode is on. Your changes will sync automatically when the connection returns.</div> : null}
-        {isLoading ? <div className={`${notice} border-slate-200 bg-white text-slate-600`} role="status">Connecting to your wardrobe…</div> : null}
 
         {page === 'today' ? (
           <>
@@ -487,33 +495,35 @@ function App() {
             onSelectGarment={setSelectedGarment}
             onAddGarment={handleAddGarment}
             onUpdateGarment={handleUpdateGarment}
-            onImageUpdate={(saved) => setGarments((current) => current.map((item) => item.id === saved.id ? saved : item))}
+            onImageUpdate={(saved) => setGarments((current) => current.map((item) => (item.id === saved.id ? saved : item)))}
             onDeleteGarment={handleDeleteGarment}
             onToggleGarmentAvailability={toggleGarmentAvailability}
             onExportWardrobe={handleExportWardrobe}
             onImportWardrobe={handleImportWardrobe}
           />
         ) : null}
-
+ 
         {page === 'explore' ? <Explore outfits={recommendedOutfits} onSaveOutfit={handleSaveOutfit} /> : null}
+ 
         {page === 'profile' ? (
           <MyProfile
             profile={profile}
             onProfileChange={setProfile}
-            onSaveProfile={() => {
-              saveScoped('profile', profile)
-              setApiError('')
-            }}
+            onSaveProfile={() =>
+              wardrobeApi
+                .saveProfile(profile)
+                .then((saved) => { setProfile(saved); setApiError('') })
+                .catch((error) => setApiError(error.message))
+            }
             onClearProfile={() => {
-              const confirmClear = window.confirm('Clear the entire profile?')
-              if (confirmClear) {
-                const nextProfile = createDefaultProfile()
-                setProfile(nextProfile)
-                saveScoped('profile', nextProfile)
-              }
+              if (!window.confirm('Clear the entire profile?')) return
+              const nextProfile = createDefaultProfile()
+     setProfile(nextProfile)
+              wardrobeApi.saveProfile(nextProfile).catch((error) => setApiError(error.message))
             }}
           />
         ) : null}
+ 
         {page === 'preferences' ? (
           <Preferences
             context={context}
@@ -528,721 +538,5 @@ function App() {
     </div>
   )
 }
-
+ 
 export default App
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- "}]} mwisho ivoq? 
