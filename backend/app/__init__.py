@@ -1,72 +1,123 @@
-import os
-from pathlib import Path
-from flask import Flask, jsonify
-from flask_cors import CORS
-from flask_migrate import Migrate
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.exc import SQLAlchemyError
-from dotenv import load_dotenv
-from werkzeug.security import generate_password_hash
+from datetime import datetime, timezone
+import uuid
 
-db = SQLAlchemy()
-migrate = Migrate()
+from sqlalchemy.dialects.postgresql import JSONB
+
+from . import db
+
+outfit_garments = db.Table(
+    'outfit_garment',
+    db.Column('outfit_id', db.String(100), db.ForeignKey('outfit_history.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('garment_id', db.String(100), db.ForeignKey('garment.id', ondelete='CASCADE'), primary_key=True),
+)
 
 
-def create_app(test_config=None):
-    load_dotenv(Path(__file__).resolve().parents[1] / '.env')
-    app = Flask(__name__)
-    db_url = os.getenv('DATABASE_URL')
-    if not db_url and not test_config:
-        raise RuntimeError('DATABASE_URL is required. Copy backend/.env.example to backend/.env and configure PostgreSQL.')
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI=db_url or 'sqlite:///:memory:',
-        SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        SECRET_KEY=os.getenv('FLASK_SECRET_KEY', 'development-only'),
-        MEDIA_DIR=os.getenv('MEDIA_DIR', str(Path(__file__).resolve().parents[1] / 'media')),
-        MAX_CONTENT_LENGTH=int(os.getenv('MAX_UPLOAD_BYTES', 10 * 1024 * 1024)),
-    )
-    if test_config:
-        app.config.update(test_config)
-    allowed_origins = [
-        origin.strip()
-        for origin in os.getenv(
-            'FRONTEND_ORIGIN',
-            'http://localhost:5173,https://fitzii.vercel.app,https://www.fitzii.vercel.app,https://app-nu-seven-87.vercel.app'
-        ).split(',')
-        if origin.strip()
-    ]
+def now_utc():
+    return datetime.now(timezone.utc)
 
-    CORS(
-        app,
-        resources={r"/api/*": {"origins": allowed_origins}},
-        supports_credentials=True,
-        allow_headers=['Content-Type', 'Authorization'],
-        methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    )
-    db.init_app(app)
-    migrate.init_app(app, db)
-    Path(app.config['MEDIA_DIR']).mkdir(parents=True, exist_ok=True)
 
-    from . import models
-    from .routes import api
-    with app.app_context():
-        if app.config.get('TESTING') or str(app.config.get('SQLALCHEMY_DATABASE_URI', '')).startswith('sqlite'):
-            db.create_all()
-    app.register_blueprint(api, url_prefix='/api')
+class User(db.Model):
+    __tablename__ = 'user'
 
-    @app.get('/media/<path:filename>')
-    def media(filename):
-        from flask import send_from_directory
-        return send_from_directory(app.config['MEDIA_DIR'], filename)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc)
 
-    @app.errorhandler(413)
-    def too_large(_):
-        return jsonify(error={'code': 'file_too_large', 'message': 'Image must be 10 MB or smaller.'}), 413
+    garments = db.relationship('Garment', backref='user', lazy='dynamic')
+    profiles = db.relationship('UserProfile', back_populates='user', uselist=False, lazy='select')
+    preferences = db.relationship('Preferences', back_populates='user', uselist=False, lazy='select')
+    history = db.relationship('OutfitHistory', back_populates='user', lazy='dynamic')
 
-    @app.errorhandler(SQLAlchemyError)
-    def database_error(_):
-        db.session.rollback()
-        app.logger.exception('Database request failed')
-        return jsonify(error={'code': 'database_error', 'message': 'The database request failed.'}), 500
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'email': self.email.lower(),
+            'name': self.name,
+            'createdAt': self.created_at.isoformat() if self.created_at else None,
+        }
 
-    return app
+
+class UserAccount(db.Model):
+    __tablename__ = 'user_account'
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    display_name = db.Column(db.String(120), nullable=False, default='Fitzii User')
+    is_demo = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc, onupdate=now_utc)
+    garments = db.relationship('Garment', backref='owner_account', lazy='dynamic')
+    profiles = db.relationship('UserProfile', back_populates='account', uselist=False)
+
+
+class Garment(db.Model):
+    id = db.Column(db.String(100), primary_key=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('user_account.id'), nullable=True, index=True, default=1)
+    name = db.Column(db.String(160), nullable=False)
+    category = db.Column(db.String(40), nullable=False, index=True)
+    type = db.Column(db.String(80))
+    subtype = db.Column(db.String(80))
+    color = db.Column(db.String(80), index=True)
+    pattern = db.Column(db.String(40))
+    material = db.Column(db.String(100))
+    fit = db.Column(db.String(60))
+    silhouette = db.Column(db.String(80))
+    formality = db.Column(db.Float)
+    visual_weight = db.Column(db.String(30))
+    status = db.Column(db.String(20), nullable=False, default='available', index=True)
+    image_path = db.Column(db.String(500))
+    thumbnail_path = db.Column(db.String(500))
+    source_filename = db.Column(db.String(255))
+    source_hash = db.Column(db.String(64), index=True)
+    review_status = db.Column(db.String(30), nullable=False, default='confirmed', index=True)
+    confidence = db.Column(db.Float)
+    attributes = db.Column(JSONB, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc, onupdate=now_utc)
+    deleted_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
+    outfit_history = db.relationship('OutfitHistory', secondary=outfit_garments, back_populates='garments', passive_deletes=True)
+
+
+class UserProfile(db.Model):
+    id = db.Column(db.Integer, primary_key=True, default=1)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
+    account_id = db.Column(db.Integer, db.ForeignKey('user_account.id'), nullable=True, index=True)
+    height = db.Column(db.Float)
+    height_unit = db.Column(db.String(8), default='cm')
+    weight = db.Column(db.Float)
+    weight_unit = db.Column(db.String(8))
+    measurements = db.Column(JSONB, nullable=False, default=dict)
+    fit_preferences = db.Column(JSONB, nullable=False, default=dict)
+    notes = db.Column(db.Text)
+    extra = db.Column(JSONB, nullable=False, default=dict)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc, onupdate=now_utc)
+    account = db.relationship('UserAccount', back_populates='profiles')
+    user = db.relationship('User', back_populates='profiles')
+
+
+class Preferences(db.Model):
+    id = db.Column(db.Integer, primary_key=True, default=1)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
+    data = db.Column(JSONB, nullable=False, default=dict)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc, onupdate=now_utc)
+    user = db.relationship('User', back_populates='preferences')
+
+
+class OutfitHistory(db.Model):
+    id = db.Column(db.String(100), primary_key=True)
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
+    garment_ids = db.Column(JSONB, nullable=False, default=list)
+    context = db.Column(db.String(100))
+    mode = db.Column(db.String(40))
+    score = db.Column(db.Float)
+    score_components = db.Column(JSONB, nullable=False, default=dict)
+    feedback = db.Column(db.String(30))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc)
+    garments = db.relationship('Garment', secondary=outfit_garments, back_populates='outfit_history', passive_deletes=True)
+    user = db.relationship('User', back_populates='history')
+
+

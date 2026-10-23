@@ -1,283 +1,102 @@
-import hashlib
-import json
 import os
-import subprocess
-import uuid
 from pathlib import Path
-from flask import Blueprint, current_app, jsonify, request
-from marshmallow import Schema, fields, ValidationError, INCLUDE
-from werkzeug.security import check_password_hash, generate_password_hash
-from werkzeug.utils import secure_filename
-from . import db
-from .models import Garment, OutfitHistory, Preferences, UserAccount, UserProfile
 
-api = Blueprint('api', __name__)
-ALLOWED = {'jpg', 'jpeg', 'png', 'webp', 'avif'}
-
-class GarmentSchema(Schema):
-    id = fields.String()
-    name = fields.String(required=True)
-    category = fields.String(required=True)
-    type = fields.String(allow_none=True)
-    subtype = fields.String(allow_none=True)
-    color = fields.String(allow_none=True)
-    pattern = fields.String(allow_none=True)
-    material = fields.String(allow_none=True)
-    fit = fields.String(allow_none=True)
-    silhouette = fields.String(allow_none=True)
-    formality = fields.Float(allow_none=True)
-    status = fields.String()
-    attributes = fields.Dict()
-
-def record(g):
-    result = dict(g.attributes or {})
-    result.update({k: getattr(g, k) for k in ('id','name','category','type','subtype','color','pattern','material','fit','silhouette','formality','status','image_path','thumbnail_path','source_filename','review_status','confidence')})
-    result['status'] = g.status or 'available'
-    return result
-
-def error(message, code='invalid_request', status=400, details=None):
-    payload = {'code': code, 'message': message}
-    if details: payload['details'] = details
-    return jsonify(error=payload), status
-
-def validate_payload(data, partial=False):
-    try:
-        schema = GarmentSchema(partial=partial, unknown=INCLUDE)
-        clean = schema.load(data)
-        if clean.get('category') and clean['category'] not in {'top','bottom','outerwear','accessory','footwear','shoe'}:
-            return None, {'category': ['Choose a supported garment category.']}
-        if clean.get('status') and clean['status'] not in {'available','unavailable'}:
-            return None, {'status': ['Must be available or unavailable.']}
-        if clean.get('formality') is not None and not 0 <= clean['formality'] <= 5:
-            return None, {'formality': ['Must be between 0 and 5.']}
-        return clean, None
-    except ValidationError as exc:
-        return None, exc.messages
-
-def apply_garment(g, data):
-    known = set(GarmentSchema().fields) - {'attributes'}
-    extra = {key: value for key, value in data.items() if key not in known and key != 'attributes'}
-    for key, value in data.items():
-        if key in known: setattr(g, key, value)
-    if 'attributes' in data or extra: g.attributes = {**(g.attributes or {}), **(data.get('attributes') or {}), **extra}
-    if 'status' not in data and not g.status: g.status = 'available'
-
-@api.get('/health')
-def health(): return jsonify(status='ok')
-
-@api.get('/wardrobe')
-def list_garments():
-    query = Garment.query
-    for key in ('category','color','status'):
-        value = request.args.get(key)
-        if value: query = query.filter(getattr(Garment, key) == value)
-    style = request.args.get('style')
-    if style: query = query.filter(Garment.attributes['style'].astext == style)
-    search = request.args.get('search')
-    if search: query = query.filter(Garment.name.ilike(f'%{search}%'))
-    return jsonify(items=[record(x) for x in query.order_by(Garment.created_at).all()])
-
-@api.get('/wardrobe/<string:garment_id>')
-def get_garment(garment_id):
-    g = db.session.get(Garment, garment_id)
-    return (jsonify(item=record(g)), 200) if g else error('Garment not found.', 'not_found', 404)
-
-@api.post('/wardrobe')
-def create_garment():
-    data, problems = validate_payload(request.get_json(silent=True) or {})
-    if problems: return error('Garment data is invalid.', details=problems)
-    data['id'] = data.get('id') or str(uuid.uuid4())
-    if db.session.get(Garment, data['id']): return error('Garment ID already exists.', 'conflict', 409)
-    g = Garment(id=data['id'], name=data['name'], category=data['category'])
-    apply_garment(g, data)
-    db.session.add(g); db.session.commit()
-    return jsonify(item=record(g)), 201
-
-@api.patch('/wardrobe/<string:garment_id>')
-def patch_garment(garment_id):
-    g = db.session.get(Garment, garment_id)
-    if not g: return error('Garment not found.', 'not_found', 404)
-    data, problems = validate_payload(request.get_json(silent=True) or {}, partial=True)
-    if problems: return error('Garment data is invalid.', details=problems)
-    apply_garment(g, data); db.session.commit()
-    return jsonify(item=record(g))
-
-@api.delete('/wardrobe/<string:garment_id>')
-def delete_garment(garment_id):
-    g = db.session.get(Garment, garment_id)
-    if not g: return error('Garment not found.', 'not_found', 404)
-    db.session.delete(g); db.session.commit()
-    return '', 204
-
-@api.post('/wardrobe/<string:garment_id>/image')
-def upload_image(garment_id):
-    g = db.session.get(Garment, garment_id)
-    image = request.files.get('image')
-    if not g: return error('Garment not found.', 'not_found', 404)
-    if not image or not image.filename or '.' not in image.filename: return error('Choose an image file.')
-    ext = image.filename.rsplit('.',1)[1].lower()
-    if ext not in ALLOWED: return error('Use JPG, PNG, WEBP, or AVIF.')
-    # Validate actual content with Pillow before storing.
-    try:
-        from PIL import Image
-        image.stream.seek(0); checked = Image.open(image.stream); checked.verify(); image.stream.seek(0)
-        expected = {'jpg':'JPEG','jpeg':'JPEG','png':'PNG','webp':'WEBP','avif':'AVIF'}[ext]
-        if checked.format != expected: raise ValueError('Image extension does not match its content')
-    except Exception: return error('The uploaded file is not a valid supported image.')
-    safe = f'{uuid.uuid4().hex}.{ext}'
-    image.save(Path(current_app.config['MEDIA_DIR']) / safe)
-    g.image_path = f'/media/{safe}'; g.source_filename = secure_filename(image.filename)
-    g.source_hash = hashlib.sha256((Path(current_app.config['MEDIA_DIR']) / safe).read_bytes()).hexdigest()
-    db.session.commit()
-    return jsonify(item=record(g))
-
-@api.get('/accounts')
-def list_accounts():
-    accounts = UserAccount.query.order_by(UserAccount.created_at.asc()).all()
-    return jsonify(accounts=[{
-        'id': account.id,
-        'username': account.username,
-        'displayName': account.display_name,
-        'isDemo': account.is_demo,
-        'createdAt': account.created_at.isoformat() if account.created_at else None,
-    } for account in accounts])
+from flask import Flask, jsonify, request, session
+from flask_cors import CORS
+from flask_migrate import Migrate
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.exc import SQLAlchemyError
+from dotenv import load_dotenv
 
 
-@api.post('/accounts')
-def create_account():
-    data = request.get_json(silent=True) or {}
-    username = str(data.get('username', '')).strip()
-    password = str(data.get('password', ''))
-    display_name = str(data.get('displayName') or data.get('name') or username).strip() or 'Fitzii User'
+db = SQLAlchemy()
+migrate = Migrate()
 
-    if not username:
-        return error('Username is required.', 'validation_error', 400)
-    if len(password) < 6:
-        return error('Password must be at least 6 characters.', 'validation_error', 400)
-    if UserAccount.query.filter_by(username=username).first():
-        return error('Username already exists.', 'conflict', 409)
 
-    account = UserAccount(
-        username=username,
-        password_hash=generate_password_hash(password),
-        display_name=display_name,
-        is_demo=False,
+def create_app(test_config=None):
+    load_dotenv(Path(__file__).resolve().parents[1] / '.env')
+    app = Flask(__name__)
+    db_url = os.getenv('DATABASE_URL')
+    if not db_url and not test_config:
+        raise RuntimeError('DATABASE_URL is required. Copy backend/.env.example to backend/.env and configure PostgreSQL.')
+
+    app.config.update(
+        SQLALCHEMY_DATABASE_URI=db_url or 'sqlite:///:memory:',
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        SECRET_KEY=os.getenv('FLASK_SECRET_KEY', 'development-only'),
+        MEDIA_DIR=os.getenv('MEDIA_DIR', str(Path(__file__).resolve().parents[1] / 'media')),
+        MAX_CONTENT_LENGTH=int(os.getenv('MAX_UPLOAD_BYTES', 10 * 1024 * 1024)),
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE=os.getenv('SESSION_COOKIE_SAMESITE', 'Lax'),
+        SESSION_COOKIE_SECURE=str(os.getenv('SESSION_COOKIE_SECURE', 'false')).lower() == 'true',
     )
-    db.session.add(account)
-    db.session.commit()
-    return jsonify(account={
-        'id': account.id,
-        'username': account.username,
-        'displayName': account.display_name,
-        'isDemo': account.is_demo,
-    }), 201
+    if test_config:
+        app.config.update(test_config)
 
+    allowed_origins = [
+        origin.strip()
+        for origin in os.getenv(
+            'FRONTEND_ORIGIN',
+            'http://localhost:5173,https://fitzii.vercel.app,https://www.fitzii.vercel.app,https://app-nu-seven-87.vercel.app',
+        ).split(',')
+        if origin.strip()
+    ]
 
-@api.post('/login')
-def login_account():
-    data = request.get_json(silent=True) or {}
-    username = str(data.get('username', '')).strip()
-    password = str(data.get('password', ''))
+    CORS(
+        app,
+        resources={r'/api/*': {'origins': allowed_origins}},
+        supports_credentials=True,
+        allow_headers=['Content-Type', 'Authorization', 'X-CSRF-TOKEN'],
+        methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    )
 
-    if not username or not password:
-        return error('Username and password are required.', 'validation_error', 400)
+    db.init_app(app)
+    migrate.init_app(app, db)
+    Path(app.config['MEDIA_DIR']).mkdir(parents=True, exist_ok=True)
 
-    account = UserAccount.query.filter_by(username=username).first()
-    if not account or not check_password_hash(account.password_hash, password):
-        return error('Invalid username or password.', 'auth_error', 401)
+    from . import models  # noqa: F401
+    from .routes import api
 
-    return jsonify(account={
-        'id': account.id,
-        'username': account.username,
-        'displayName': account.display_name,
-        'isDemo': account.is_demo,
-    })
+    with app.app_context():
+        if app.config.get('TESTING') or str(app.config.get('SQLALCHEMY_DATABASE_URI', '')).startswith('sqlite'):
+            db.create_all()
 
+    app.register_blueprint(api, url_prefix='/api')
 
-@api.get('/profile')
-def get_profile():
-    p = db.session.get(UserProfile, 1)
-    return jsonify(profile={**(p.extra or {}),'height':p.height,'heightUnit':p.height_unit,'weight':p.weight,'weightUnit':p.weight_unit,'measurements':p.measurements,'fitPreferences':p.fit_preferences,'notes':p.notes} if p else {})
+    @app.before_request
+    def enforce_auth():
+        if request.path.startswith('/api/auth/') or request.path == '/api/health':
+            return
+        if not request.path.startswith('/api/'):
+            return
+        if not session.get('user_id'):
+            return jsonify(error={'code': 'unauthorized', 'message': 'Authentication required.'}), 401
 
-@api.put('/profile')
-def put_profile():
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict): return error('Profile must be a JSON object.')
-    for key in ('height','weight'):
-        if data.get(key) is not None and (not isinstance(data[key], (int,float)) or data[key] <= 0): return error(f'{key} must be a positive number.')
-    if data.get('heightUnit','cm') not in {'cm','in'}: return error('heightUnit must be cm or in.')
-    if data.get('weightUnit') and data['weightUnit'] not in {'kg','lb'}: return error('weightUnit must be kg or lb.')
-    measurements=data.get('measurements') or []
-    if not isinstance(measurements,(list,dict)): return error('measurements must be an array or object.')
-    if isinstance(measurements,list):
-        for measurement in measurements:
-            if not isinstance(measurement,dict): return error('Each measurement must be an object.')
-            value=measurement.get('value')
-            if value is not None and (not isinstance(value,(int,float)) or value <= 0): return error('Measurement values must be positive numbers.')
-            if value is not None and measurement.get('unit') not in {'cm','in','kg','lb'}: return error('Each measurement must include a supported unit.')
-    p = db.session.get(UserProfile, 1) or UserProfile(id=1)
-    p.height=data.get('height'); p.height_unit=data.get('heightUnit','cm'); p.weight=data.get('weight'); p.weight_unit=data.get('weightUnit')
-    p.measurements=data.get('measurements') or {}; p.fit_preferences=data.get('fitPreferences') or {}; p.notes=data.get('notes')
-    p.extra={k:v for k,v in data.items() if k not in {'height','heightUnit','weight','weightUnit','measurements','fitPreferences','notes'}}
-    db.session.add(p); db.session.commit(); return get_profile()
+        if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+            if session.get('csrf_token') and request.headers.get('X-CSRF-TOKEN') != session.get('csrf_token'):
+                return jsonify(error={'code': 'csrf_error', 'message': 'Invalid CSRF token.'}), 403
 
-@api.get('/preferences')
-def get_preferences():
-    p=db.session.get(Preferences,1); return jsonify(preferences=p.data if p else {})
+    @app.get('/media/<path:filename>')
+    def media(filename):
+        from flask import send_from_directory
+        return send_from_directory(app.config['MEDIA_DIR'], filename)
 
-@api.put('/preferences')
-def put_preferences():
-    data=request.get_json(silent=True)
-    if not isinstance(data,dict): return error('Preferences must be a JSON object.')
-    p=db.session.get(Preferences,1) or Preferences(id=1,data=data); p.data=data; db.session.add(p); db.session.commit()
-    return jsonify(preferences=p.data)
+    @app.get('/media/<user_id>/<path:filename>')
+    def media_for_user(user_id, filename):
+        if session.get('user_id') != user_id:
+            return jsonify(error={'code': 'forbidden', 'message': 'Not allowed.'}), 403
+        from flask import send_from_directory
+        return send_from_directory(str(Path(app.config['MEDIA_DIR']) / user_id), filename)
 
-@api.post('/recommendations')
-def recommendations():
-    data=request.get_json(silent=True) or {}
-    garments=[record(g) for g in Garment.query.filter_by(status='available').all()]
-    p=db.session.get(UserProfile,1)
-    profile=({**(p.extra or {}),'height':p.height,'heightUnit':p.height_unit,'weight':p.weight,'weightUnit':p.weight_unit,'measurements':p.measurements,'fitPreferences':p.fit_preferences,'notes':p.notes} if p else None)
-    preferences=data.get('preferences') or {}
-    saved=db.session.get(Preferences,1)
-    if saved: preferences={**saved.data,**preferences}
-    history=[{'items': h.garment_ids, 'timestamp': h.created_at.timestamp()*1000} for h in OutfitHistory.query.order_by(OutfitHistory.created_at.desc()).limit(40).all()]
-    payload={'garments':garments,'context':data.get('context','casual'),'preferences':preferences,'history':history,'profile':profile,'limit':data.get('limit',6)}
-    script=Path(__file__).resolve().parents[1] / 'recommendations.mjs'
-    try:
-        result=subprocess.run(['node',str(script)],input=json.dumps(payload),text=True,capture_output=True,timeout=10,check=True)
-        return jsonify(outfits=json.loads(result.stdout))
-    except Exception:
-        current_app.logger.exception('Recommendation engine failed')
-        return error('Unable to generate recommendations.', 'recommendation_error', 500)
+    @app.errorhandler(413)
+    def too_large(_):
+        return jsonify(error={'code': 'file_too_large', 'message': 'Image must be 10 MB or smaller.'}), 413
 
-@api.get('/history')
-def get_history():
-    rows=OutfitHistory.query.order_by(OutfitHistory.created_at.desc()).limit(100).all()
-    return jsonify(items=[{'id':r.id,'garmentIds':r.garment_ids,'context':r.context,'mode':r.mode,'score':r.score,'scoreComponents':r.score_components,'feedback':r.feedback,'createdAt':r.created_at.isoformat()} for r in rows])
+    @app.errorhandler(SQLAlchemyError)
+    def database_error(_):
+        db.session.rollback()
+        app.logger.exception('Database request failed')
+        return jsonify(error={'code': 'database_error', 'message': 'The database request failed.'}), 500
 
-@api.post('/history')
-def add_history():
-    data=request.get_json(silent=True) or {}
-    if not isinstance(data.get('garmentIds'),list): return error('garmentIds must be an array.')
-    row=OutfitHistory(id=data.get('id') or str(uuid.uuid4()),garment_ids=data['garmentIds'],context=data.get('context'),mode=data.get('mode'),score=data.get('score'),score_components=data.get('scoreComponents') or {},feedback=data.get('feedback'))
-    row.garments=Garment.query.filter(Garment.id.in_(data['garmentIds'])).all() if data['garmentIds'] else []
-    db.session.add(row); db.session.commit(); return jsonify(id=row.id),201
+    return app
 
-@api.post('/import')
-def import_items():
-    data=request.get_json(silent=True) or {}
-    items=data.get('items',[])
-    if not isinstance(items,list): return error('items must be an array.')
-    report={'created':[],'skipped':[],'failed':[]}
-    for item in items:
-        clean, problems=validate_payload(item)
-        if problems: report['failed'].append({'id':item.get('id'),'errors':problems}); continue
-        source_hash=item.get('source_hash') or (item.get('attributes') or {}).get('sourceHash')
-        if (clean.get('id') and db.session.get(Garment,clean['id'])) or (source_hash and Garment.query.filter_by(source_hash=source_hash).first()):
-            report['skipped'].append(clean.get('id')); continue
-        clean['id']=clean.get('id') or str(uuid.uuid4())
-        g=Garment(id=clean['id'],name=clean['name'],category=clean['category'],source_filename=item.get('source_filename'),source_hash=source_hash,review_status=item.get('review_status','needs_review'),confidence=item.get('confidence'))
-        apply_garment(g,clean); db.session.add(g); report['created'].append(g.id)
-    db.session.commit()
-    return jsonify(report), 207 if report['failed'] else 200

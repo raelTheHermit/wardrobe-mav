@@ -1,0 +1,572 @@
+"""add user auth and per-user scoping
+
+Revision ID: 20261023_add_user_auth_and_scoping
+Revises: 
+Create Date: 2026-10-23 00:00:00.000000
+
+"""
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision = '20261023_add_user_auth_and_scoping'
+down_revision = None
+branch_labels = None
+depends_on = None
+
+
+def upgrade():
+    op.create_table(
+        'user',
+        sa.Column('id', sa.String(length=36), nullable=False),
+        sa.Column('email', sa.String(length=255), nullable=False),
+        sa.Column('name', sa.String(length=120), nullable=False),
+        sa.Column('password_hash', sa.String(length=255), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.PrimaryKeyConstraint('id'),
+    )
+    op.create_index(op.f('ix_user_email'), 'user', ['email'], unique=True)
+
+    with op.batch_alter_table('garment', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('user_id', sa.String(length=36), nullable=True))
+        batch_op.add_column(sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True))
+        batch_op.create_index(batch_op.f('ix_garment_user_id'), ['user_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_garment_deleted_at'), ['deleted_at'], unique=False)
+        batch_op.create_foreign_key('fk_garment_user_id_user', 'user', ['user_id'], ['id'])
+
+    with op.batch_alter_table('user_profile', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('user_id', sa.String(length=36), nullable=True))
+        batch_op.create_index(batch_op.f('ix_user_profile_user_id'), ['user_id'], unique=False)
+        batch_op.create_foreign_key('fk_user_profile_user_id_user', 'user', ['user_id'], ['id'])
+
+    with op.batch_alter_table('preferences', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('user_id', sa.String(length=36), nullable=True))
+        batch_op.create_index(batch_op.f('ix_preferences_user_id'), ['user_id'], unique=False)
+        batch_op.create_foreign_key('fk_preferences_user_id_user', 'user', ['user_id'], ['id'])
+
+    with op.batch_alter_table('outfit_history', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('user_id', sa.String(length=36), nullable=True))
+        batch_op.create_index(batch_op.f('ix_outfit_history_user_id'), ['user_id'], unique=False)
+        batch_op.create_foreign_key('fk_outfit_history_user_id_user', 'user', ['user_id'], ['id'])
+
+
+def downgrade():
+    with op.batch_alter_table('outfit_history', schema=None) as batch_op:
+        batch_op.drop_constraint('fk_outfit_history_user_id_user', type_='foreignkey')
+        batch_op.drop_index(batch_op.f('ix_outfit_history_user_id'))
+        batch_op.drop_column('user_id')
+
+    with op.batch_alter_table('preferences', schema=None) as batch_op:
+        batch_op.drop_constraint('fk_preferences_user_id_user', type_='foreignkey')
+        batch_op.drop_index(batch_op.f('ix_preferences_user_id'))
+        batch_op.drop_column('user_id')
+
+    with op.batch_alter_table('user_profile', schema=None) as batch_op:
+        batch_op.drop_constraint('fk_user_profile_user_id_user', type_='foreignkey')
+        batch_op.drop_index(batch_op.f('ix_user_profile_user_id'))
+        batch_op.drop_column('user_id')
+
+    with op.batch_alter_table('garment', schema=None) as batch_op:
+        batch_op.drop_constraint('fk_garment_user_id_user', type_='foreignkey')
+        batch_op.drop_index(batch_op.f('ix_garment_user_id'))
+        batch_op.drop_index(batch_op.f('ix_garment_deleted_at'))
+        batch_op.drop_column('deleted_at')
+        batch_op.drop_column('user_id')
+
+    op.drop_index(op.f('ix_user_email'), table_name='user')
+    op.drop_table('user')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+'}]} (*I have to be careful not to include malformed extra content from my earlier accidental payload; the tool accepted but the patch may have weird trailing text. Need confirm file content via getfile.*) Should inspect files. But due weird content after last object, might fail because large stray ellipsis. Need check. Let's read a couple files to ensure valid. Need fix if needed. Use getfile on backend/app/routes.py and models. Let's do. Need careful with 
