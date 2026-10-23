@@ -1,61 +1,36 @@
-let currentUserId = 'guest'
+import { apiRequest, authApi } from './api.js'
+import { syncQueuedOperations } from './offlineSync.js'
+import { loadScoped, saveScoped, getStorageUser } from './userStorage.js'
 
-export const getStorageUser = () => currentUserId
-export const setStorageUser = (id) => {
-  currentUserId = id || 'guest'
-}
-
-const key = (userId, name) => `fitzii:${userId}:${name}`
-
-export function loadScoped(name, fallback = null, userId = currentUserId) {
-  try {
-    const raw = localStorage.getItem(key(userId, name))
-    return raw == null ? fallback : JSON.parse(raw)
-  } catch {
-    return fallback
+// What the UI renders from. Always the CURRENT user's cache.
+export function readCache() {
+  return {
+    garments: loadScoped('wardrobe', []),
+    profile: loadScoped('profile', null),
+    preferences: loadScoped('preferences', null),
+    history: loadScoped('history', []),
   }
 }
 
-export function saveScoped(name, value, userId = currentUserId) {
-  try {
-    localStorage.setItem(key(userId, name), JSON.stringify(value))
-  } catch (error) {
-    console.warn('Could not write local cache', error)
-  }
-}
+// 1) push queued local edits, 2) pull the server's copy into this user's cache.
+// If edits are still queued (offline / server error) we skip the pull so unsynced
+// local changes are never overwritten by older server data.
+export async function syncNow() {
+  const userId = getStorageUser()
+  const push = await syncQueuedOperations(apiRequest)
+  if (push.authExpired || push.remaining > 0) return { ...push, data: null }
 
-export function clearUserData(userId = currentUserId) {
-  try {
-    const prefix = `fitzii:${userId}:`
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith(prefix))
-      .forEach((k) => localStorage.removeItem(k))
-  } catch {
-    // ignore
+  const server = await authApi.sync() // full pull; add `since` later for incremental sync
+  const data = {
+    garments: (server.garments || []).filter((g) => !g.deleted_at),
+    profile: server.profile || null,
+    preferences: server.preferences || null,
+    history: server.history || [],
   }
-}
-
-const LAST_USER = 'fitzii:lastUser'
-export const rememberUser = (user) => {
-  try {
-    localStorage.setItem(LAST_USER, JSON.stringify(user))
-  } catch {
-    // ignore
-  }
-}
-
-export const forgetUser = () => {
-  try {
-    localStorage.removeItem(LAST_USER)
-  } catch {
-    // ignore
-  }
-}
-
-export const getRememberedUser = () => {
-  try {
-    return JSON.parse(localStorage.getItem(LAST_USER))
-  } catch {
-    return null
-  }
+  saveScoped('wardrobe', data.garments, userId)
+  saveScoped('profile', data.profile, userId)
+  saveScoped('preferences', data.preferences, userId)
+  saveScoped('history', data.history, userId)
+  saveScoped('lastSync', new Date().toISOString(), userId)
+  return { ...push, data }
 }
