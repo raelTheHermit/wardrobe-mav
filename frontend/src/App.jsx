@@ -10,7 +10,8 @@ import { loadFromStorage, saveToStorage, storageKeys } from './utils/storage.js'
 import { buildFitCompatibility, createDefaultProfile } from './utils/bodyProfile.js'
 import guestWardrobeSeed from './data/guestWardrobe.json'
 import { exportWardrobePayload, importWardrobeRecords } from './utils/wardrobeStorage.js'
-import { apiRequest } from './utils/api.js'
+import { apiRequest, authApi, setUnauthorizedHandler } from './utils/api.js'
+import { loadUserSession, syncUserData } from './utils/syncData.js'
 
 const demoAccount = { id: 'demo-guest', name: 'Rael', email: 'guest@fitzii.local', guest: true }
 const demoPreferences = {
@@ -92,6 +93,46 @@ function App() {
   const [recommendedOutfits, setRecommendedOutfits] = useState([])
   const [aestheticOutfits, setAestheticOutfits] = useState([])
 
+  const hydrateAuthenticatedSession = async (activeAccount) => {
+    if (!activeAccount) return
+
+    setAccount(activeAccount)
+    saveToStorage(storageKeys.account, activeAccount)
+
+    try {
+      const syncResult = await loadUserSession(activeAccount)
+      const wardrobe = Array.isArray(syncResult?.wardrobe) ? syncResult.wardrobe : loadFromStorage(storageKeys.wardrobe, guestWardrobeSeed)
+      const profile = syncResult?.profile && Object.keys(syncResult.profile).length ? syncResult.profile : loadFromStorage(storageKeys.profile, createDefaultProfile())
+      const preferences = syncResult?.preferences && Object.keys(syncResult.preferences).length ? syncResult.preferences : loadFromStorage(storageKeys.preferences, defaultPreferences)
+
+      setGarments(wardrobe)
+      setProfile(profile)
+      setPreferences(preferences)
+      saveToStorage(storageKeys.wardrobe, wardrobe)
+      saveToStorage(storageKeys.profile, profile)
+      saveToStorage(storageKeys.preferences, preferences)
+    } catch (error) {
+      console.warn('Could not hydrate backend session data, keeping local data as fallback.', error)
+      const localWardrobe = loadFromStorage(storageKeys.wardrobe, guestWardrobeSeed)
+      const localProfile = loadFromStorage(storageKeys.profile, createDefaultProfile())
+      const localPreferences = loadFromStorage(storageKeys.preferences, defaultPreferences)
+      setGarments(localWardrobe)
+      setProfile(localProfile)
+      setPreferences(localPreferences)
+      saveToStorage(storageKeys.wardrobe, localWardrobe)
+      saveToStorage(storageKeys.profile, localProfile)
+      saveToStorage(storageKeys.preferences, localPreferences)
+    }
+  }
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setAccount(null)
+      saveToStorage(storageKeys.account, null)
+      setStage('auth')
+    })
+  }, [])
+
   useEffect(() => {
     const storedSaved = loadFromStorage(storageKeys.outfits, [])
     const existingHistory = loadFromStorage(storageKeys.history, [])
@@ -107,12 +148,54 @@ function App() {
     setPreferences(localPreferences)
     setHistory(existingHistory)
     setApiError('')
-    setIsLoading(false)
 
-    saveToStorage(storageKeys.account, activeAccount)
-    saveToStorage(storageKeys.profile, localProfile)
-    saveToStorage(storageKeys.wardrobe, localWardrobe)
-    saveToStorage(storageKeys.preferences, localPreferences)
+    const bootstrap = async () => {
+      try {
+        const currentUser = activeAccount ? activeAccount : await authApi.me()
+        if (!currentUser) {
+          setStage('auth')
+          setIsLoading(false)
+          return
+        }
+
+        const nextAccount = {
+          id: currentUser.id,
+          name: currentUser.displayName || currentUser.name || currentUser.username,
+          username: currentUser.username,
+          password: activeAccount?.password || '',
+        }
+
+        saveToStorage(storageKeys.account, nextAccount)
+        setAccount(nextAccount)
+        setStage('app')
+        const remoteData = await syncUserData(nextAccount, {
+          wardrobe: localWardrobe,
+          profile: localProfile,
+          preferences: localPreferences,
+          history: existingHistory,
+        })
+
+        const wardrobe = Array.isArray(remoteData?.wardrobe) ? remoteData.wardrobe : localWardrobe
+        const profile = remoteData?.profile && Object.keys(remoteData.profile).length ? remoteData.profile : localProfile
+        const preferences = remoteData?.preferences && Object.keys(remoteData.preferences).length ? remoteData.preferences : localPreferences
+
+        setGarments(wardrobe)
+        setProfile(profile)
+        setPreferences(preferences)
+        setHistory(Array.isArray(remoteData?.history) ? remoteData.history : existingHistory)
+        saveToStorage(storageKeys.wardrobe, wardrobe)
+        saveToStorage(storageKeys.profile, profile)
+        saveToStorage(storageKeys.preferences, preferences)
+        saveToStorage(storageKeys.history, Array.isArray(remoteData?.history) ? remoteData.history : existingHistory)
+      } catch (error) {
+        console.warn('App bootstrap could not reach the backend; using local data instead.', error)
+        setStage(activeAccount ? 'app' : 'auth')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    bootstrap()
   }, [])
 
   useEffect(() => {
@@ -168,49 +251,47 @@ function App() {
 
   const handleSignUp = async ({ name, username, password }) => {
     const cleanedUsername = String(username || name || '').trim()
-    const next = {
-      id: crypto.randomUUID?.() || `account-${Date.now()}`,
-      name: String(name || '').trim(),
-      username: cleanedUsername,
-      password,
-    }
+    const displayName = String(name || '').trim() || cleanedUsername
 
     try {
-      const response = await apiRequest('/accounts', {
-        method: 'POST',
-        body: JSON.stringify({
-          username: cleanedUsername,
-          password,
-          name: String(name || '').trim(),
-        }),
+      const remoteUser = await authApi.register({
+        username: cleanedUsername,
+        password,
+        name: displayName,
       })
 
-      const remoteUser = response?.account
-      if (remoteUser) {
-        const remoteAccount = {
-          id: remoteUser.id,
-          name: remoteUser.displayName || String(name || '').trim(),
-          username: remoteUser.username || cleanedUsername,
-          password,
-        }
-        const saved = loadFromStorage(storageKeys.accounts, [])
-        const nextAccounts = [...(Array.isArray(saved) ? saved : []), remoteAccount]
-        saveToStorage(storageKeys.accounts, nextAccounts)
-        saveToStorage(storageKeys.account, remoteAccount)
-        setAccount(remoteAccount)
-        setStage('onboarding')
-        return
+      const remoteAccount = {
+        id: remoteUser.id,
+        name: remoteUser.displayName || displayName,
+        username: remoteUser.username || cleanedUsername,
+        password,
       }
+
+      const saved = loadFromStorage(storageKeys.accounts, [])
+      const nextAccounts = [...(Array.isArray(saved) ? saved : []), remoteAccount]
+      saveToStorage(storageKeys.accounts, nextAccounts)
+      saveToStorage(storageKeys.account, remoteAccount)
+      setAccount(remoteAccount)
+      await hydrateAuthenticatedSession(remoteAccount)
+      setStage('onboarding')
+      return true
     } catch (error) {
       console.warn('Backend account creation failed, falling back to local storage.', error)
     }
 
+    const localAccount = {
+      id: crypto.randomUUID?.() || `account-${Date.now()}`,
+      name: displayName,
+      username: cleanedUsername,
+      password,
+    }
     const saved = loadFromStorage(storageKeys.accounts, [])
-    const nextAccounts = [...(Array.isArray(saved) ? saved : []), next]
+    const nextAccounts = [...(Array.isArray(saved) ? saved : []), localAccount]
     saveToStorage(storageKeys.accounts, nextAccounts)
-    saveToStorage(storageKeys.account, next)
-    setAccount(next)
+    saveToStorage(storageKeys.account, localAccount)
+    setAccount(localAccount)
     setStage('onboarding')
+    return true
   }
 
   const handleLogin = async (identifier, password) => {
@@ -218,29 +299,26 @@ function App() {
     const normalizedPassword = String(password || '')
 
     try {
-      const response = await apiRequest('/login', {
-        method: 'POST',
-        body: JSON.stringify({
-          username: trimmedIdentifier,
-          password: normalizedPassword,
-        }),
+      const remoteUser = await authApi.login({
+        username: trimmedIdentifier,
+        password: normalizedPassword,
       })
 
-      if (response?.account) {
-        const nextAccount = {
-          id: response.account.id,
-          name: response.account.displayName || trimmedIdentifier,
-          username: response.account.username || trimmedIdentifier,
-          password: normalizedPassword,
-        }
-        saveToStorage(storageKeys.account, nextAccount)
-        setAccount(nextAccount)
-        setStage('app')
-        setPage('today')
-        return true
+      const nextAccount = {
+        id: remoteUser.id,
+        name: remoteUser.displayName || remoteUser.name || trimmedIdentifier,
+        username: remoteUser.username || trimmedIdentifier,
+        password: normalizedPassword,
       }
+
+      saveToStorage(storageKeys.account, nextAccount)
+      setAccount(nextAccount)
+      await hydrateAuthenticatedSession(nextAccount)
+      setStage('app')
+      setPage('today')
+      return true
     } catch (error) {
-      console.warn('Backend login failed, checking local fallback.', error)
+      console.warn('Backend login failed, falling back to local storage only if a matching offline record exists.', error)
     }
 
     const saved = loadFromStorage(storageKeys.accounts, [])
@@ -309,7 +387,13 @@ function App() {
     setPage('today')
   }
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    try {
+      await authApi.logout()
+    } catch (error) {
+      console.warn('Logout from the server failed, continuing with local session reset.', error)
+    }
+
     saveToStorage(storageKeys.account, null)
     saveToStorage('fitzii.guest', false)
     setAccount(null)

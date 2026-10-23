@@ -4,7 +4,7 @@ import os
 import subprocess
 import uuid
 from pathlib import Path
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify, make_response, request, session
 from marshmallow import Schema, fields, ValidationError, INCLUDE
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -143,6 +143,124 @@ def list_accounts():
     } for account in accounts])
 
 
+def serialize_user(account):
+    return {
+        'id': account.id,
+        'username': account.username,
+        'displayName': account.display_name,
+        'name': account.display_name,
+        'isDemo': account.is_demo,
+    }
+
+
+def current_user():
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+    return db.session.get(UserAccount, user_id)
+
+
+@api.post('/auth/register')
+def auth_register():
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username', '')).strip()
+    password = str(data.get('password', ''))
+    display_name = str(data.get('displayName') or data.get('name') or username).strip() or 'Fitzii User'
+
+    if not username:
+        return error('Username is required.', 'validation_error', 400)
+    if len(password) < 6:
+        return error('Password must be at least 6 characters.', 'validation_error', 400)
+    if UserAccount.query.filter_by(username=username).first():
+        return error('Username already exists.', 'conflict', 409)
+
+    account = UserAccount(
+        username=username,
+        password_hash=generate_password_hash(password),
+        display_name=display_name,
+        is_demo=False,
+    )
+    db.session.add(account)
+    db.session.commit()
+    session['user_id'] = account.id
+
+    response = make_response(jsonify(user=serialize_user(account)))
+    response.set_cookie('csrf_access_token', uuid.uuid4().hex, samesite='Lax', secure=False)
+    return response, 201
+
+
+@api.post('/auth/login')
+def auth_login():
+    data = request.get_json(silent=True) or {}
+    username = str(data.get('username', '')).strip()
+    password = str(data.get('password', ''))
+
+    if not username or not password:
+        return error('Username and password are required.', 'validation_error', 400)
+
+    account = UserAccount.query.filter_by(username=username).first()
+    if not account or not check_password_hash(account.password_hash, password):
+        return error('Invalid username or password.', 'auth_error', 401)
+
+    session['user_id'] = account.id
+    response = make_response(jsonify(user=serialize_user(account)))
+    response.set_cookie('csrf_access_token', uuid.uuid4().hex, samesite='Lax', secure=False)
+    return response
+
+
+@api.post('/auth/logout')
+def auth_logout():
+    session.clear()
+    response = make_response(jsonify(ok=True))
+    response.delete_cookie('csrf_access_token')
+    return response
+
+
+@api.get('/auth/me')
+def auth_me():
+    account = current_user()
+    if not account:
+        return error('Not authenticated.', 'auth_error', 401)
+    return jsonify(user=serialize_user(account))
+
+
+@api.get('/sync')
+def sync_user_state():
+    account = current_user()
+    if not account:
+        return error('Authentication required.', 'auth_error', 401)
+
+    wardrobe = [record(g) for g in Garment.query.filter_by(account_id=account.id).order_by(Garment.created_at).all()]
+    profile = db.session.query(UserProfile).filter_by(account_id=account.id).first()
+    if profile:
+        profile_data = {
+            **(profile.extra or {}),
+            'height': profile.height,
+            'heightUnit': profile.height_unit,
+            'weight': profile.weight,
+            'weightUnit': profile.weight_unit,
+            'measurements': profile.measurements,
+            'fitPreferences': profile.fit_preferences,
+            'notes': profile.notes,
+        }
+    else:
+        profile_data = {}
+
+    prefs = Preferences.query.order_by(Preferences.id.asc()).first()
+    history = [
+        {'id': row.id, 'garmentIds': row.garment_ids, 'context': row.context, 'mode': row.mode, 'score': row.score, 'scoreComponents': row.score_components, 'feedback': row.feedback, 'createdAt': row.created_at.isoformat()}
+        for row in OutfitHistory.query.order_by(OutfitHistory.created_at.desc()).limit(100).all()
+    ]
+
+    return jsonify({
+        'user': serialize_user(account),
+        'wardrobe': wardrobe,
+        'profile': profile_data,
+        'preferences': prefs.data if prefs else {},
+        'history': history,
+    })
+
+
 @api.post('/accounts')
 def create_account():
     data = request.get_json(silent=True) or {}
@@ -165,12 +283,8 @@ def create_account():
     )
     db.session.add(account)
     db.session.commit()
-    return jsonify(account={
-        'id': account.id,
-        'username': account.username,
-        'displayName': account.display_name,
-        'isDemo': account.is_demo,
-    }), 201
+    session['user_id'] = account.id
+    return jsonify(account=serialize_user(account)), 201
 
 
 @api.post('/login')
@@ -186,12 +300,8 @@ def login_account():
     if not account or not check_password_hash(account.password_hash, password):
         return error('Invalid username or password.', 'auth_error', 401)
 
-    return jsonify(account={
-        'id': account.id,
-        'username': account.username,
-        'displayName': account.display_name,
-        'isDemo': account.is_demo,
-    })
+    session['user_id'] = account.id
+    return jsonify(account=serialize_user(account))
 
 
 @api.get('/profile')
