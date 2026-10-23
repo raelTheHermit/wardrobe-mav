@@ -1,9 +1,13 @@
 from datetime import datetime, timezone
 import uuid
 
+from sqlalchemy import JSON
 from sqlalchemy.dialects.postgresql import JSONB
 
 from . import db
+
+# JSONB on PostgreSQL (unchanged schema), plain JSON on SQLite so db.create_all() works in tests.
+JSONType = JSON().with_variant(JSONB(), 'postgresql')
 
 outfit_garments = db.Table(
     'outfit_garment',
@@ -40,6 +44,7 @@ class User(db.Model):
 
 
 class UserAccount(db.Model):
+    """Legacy account table. Kept so existing rows and migrations keep working."""
     __tablename__ = 'user_account'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -56,7 +61,8 @@ class UserAccount(db.Model):
 class Garment(db.Model):
     id = db.Column(db.String(100), primary_key=True)
     user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
-    account_id = db.Column(db.Integer, db.ForeignKey('user_account.id'), nullable=True, index=True, default=1)
+    # No default: a default of 1 pointed every new garment at legacy account 1.
+    account_id = db.Column(db.Integer, db.ForeignKey('user_account.id'), nullable=True, index=True)
     name = db.Column(db.String(160), nullable=False)
     category = db.Column(db.String(40), nullable=False, index=True)
     type = db.Column(db.String(80))
@@ -75,7 +81,7 @@ class Garment(db.Model):
     source_hash = db.Column(db.String(64), index=True)
     review_status = db.Column(db.String(30), nullable=False, default='confirmed', index=True)
     confidence = db.Column(db.Float)
-    attributes = db.Column(JSONB, nullable=False, default=dict)
+    attributes = db.Column(JSONType, nullable=False, default=dict)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc, onupdate=now_utc)
     deleted_at = db.Column(db.DateTime(timezone=True), nullable=True, index=True)
@@ -83,26 +89,28 @@ class Garment(db.Model):
 
 
 class UserProfile(db.Model):
-    id = db.Column(db.Integer, primary_key=True, default=1)
+    # No default: a default of 1 allowed only one profile row in the whole database.
+    id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     account_id = db.Column(db.Integer, db.ForeignKey('user_account.id'), nullable=True, index=True)
     height = db.Column(db.Float)
     height_unit = db.Column(db.String(8), default='cm')
     weight = db.Column(db.Float)
     weight_unit = db.Column(db.String(8))
-    measurements = db.Column(JSONB, nullable=False, default=dict)
-    fit_preferences = db.Column(JSONB, nullable=False, default=dict)
+    measurements = db.Column(JSONType, nullable=False, default=dict)
+    fit_preferences = db.Column(JSONType, nullable=False, default=dict)
     notes = db.Column(db.Text)
-    extra = db.Column(JSONB, nullable=False, default=dict)
+    extra = db.Column(JSONType, nullable=False, default=dict)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc, onupdate=now_utc)
     account = db.relationship('UserAccount', back_populates='profiles')
     user = db.relationship('User', back_populates='profiles')
 
 
 class Preferences(db.Model):
-    id = db.Column(db.Integer, primary_key=True, default=1)
+    # No default: same single-row problem as UserProfile.
+    id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
-    data = db.Column(JSONB, nullable=False, default=dict)
+    data = db.Column(JSONType, nullable=False, default=dict)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc, onupdate=now_utc)
     user = db.relationship('User', back_populates='preferences')
 
@@ -110,11 +118,11 @@ class Preferences(db.Model):
 class OutfitHistory(db.Model):
     id = db.Column(db.String(100), primary_key=True)
     user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
-    garment_ids = db.Column(JSONB, nullable=False, default=list)
+    garment_ids = db.Column(JSONType, nullable=False, default=list)
     context = db.Column(db.String(100))
     mode = db.Column(db.String(40))
     score = db.Column(db.Float)
-    score_components = db.Column(JSONB, nullable=False, default=dict)
+    score_components = db.Column(JSONType, nullable=False, default=dict)
     feedback = db.Column(db.String(30))
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now_utc)
     garments = db.relationship('Garment', secondary=outfit_garments, back_populates='outfit_history', passive_deletes=True)

@@ -13,6 +13,7 @@ export default defineConfig({
       includeAssets: ["wardrobe-ai-icon.svg"],
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,ico}"],
+        navigateFallbackDenylist: [/^\/api/, /^\/media/],
       },
       manifest: {
         name: "Fitzii",
