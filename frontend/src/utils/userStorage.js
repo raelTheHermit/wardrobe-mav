@@ -1,70 +1,39 @@
-import { getStorageUser, loadScoped, saveScoped } from './userStorage.js'
+// Per-user local cache. Every key is namespaced: fitzii:<userId>:<name>
+// "guest" is the namespace used when nobody is logged in.
+let currentUserId = 'guest'
 
-const QUEUE = 'pendingOps'
-const FAILED = 'failedOps'
+export const getStorageUser = () => currentUserId
+export const setStorageUser = (id) => { currentUserId = id || 'guest' }
 
-export function isOnline() {
-  return typeof navigator === 'undefined' || navigator.onLine !== false
-}
+const key = (userId, name) => `fitzii:${userId}:${name}`
 
-export function getPendingOperations(userId = getStorageUser()) {
-  const queue = loadScoped(QUEUE, [], userId)
-  return Array.isArray(queue) ? queue : []
-}
-
-export const pendingCount = () => getPendingOperations().length
-
-export function queuePendingOperation(operation) {
-  if (typeof window === 'undefined') return []
-  const next = [...getPendingOperations(), { ...operation, createdAt: new Date().toISOString() }]
-  saveScoped(QUEUE, next)
-  return next
-}
-
-export async function syncQueuedOperations(request) {
-  const userId = getStorageUser()
-  const queue = getPendingOperations(userId)
-  if (!isOnline() || typeof request !== 'function' || !queue.length) {
-    return { remaining: queue.length, failed: 0, authExpired: false }
+export function loadScoped(name, fallback = null, userId = currentUserId) {
+  try {
+    const raw = localStorage.getItem(key(userId, name))
+    return raw == null ? fallback : JSON.parse(raw)
+  } catch {
+    return fallback
   }
-
-  const remaining = []
-  const failed = []
-  let authExpired = false
-  let stopped = false
-
-  for (const entry of queue) {
-    if (stopped) {
-      remaining.push(entry)
-      continue
-    }
-
-    try {
-      await request(entry.path, {
-        method: entry.method,
-        headers: entry.headers || { 'Content-Type': 'application/json' },
-        body: entry.body && typeof entry.body !== 'string' ? JSON.stringify(entry.body) : entry.body,
-        _sync: true,
-      })
-    } catch (error) {
-      const status = error?.status
-      if (status === 401) {
-        authExpired = true
-        stopped = true
-        remaining.push(entry)
-      } else if (!status || status >= 500 || status === 408 || status === 429) {
-        stopped = true
-        remaining.push(entry)
-      } else {
-        failed.push({ ...entry, status, error: error.message })
-      }
-    }
-  }
-
-  saveScoped(QUEUE, remaining, userId)
-  if (failed.length) {
-    saveScoped(FAILED, [...loadScoped(FAILED, [], userId), ...failed], userId)
-  }
-
-  return { remaining: remaining.length, failed: failed.length, authExpired }
 }
+
+export function saveScoped(name, value, userId = currentUserId) {
+  try {
+    localStorage.setItem(key(userId, name), JSON.stringify(value))
+  } catch (error) {
+    console.warn('Could not write local cache', error)
+  }
+}
+
+// Removes everything cached for one user (call on logout).
+export function clearUserData(userId = currentUserId) {
+  try {
+    const prefix = `fitzii:${userId}:`
+    Object.keys(localStorage).filter((k) => k.startsWith(prefix)).forEach((k) => localStorage.removeItem(k))
+  } catch { /* ignore */ }
+}
+
+// Last logged-in user, so the installed PWA can still open offline.
+const LAST_USER = 'fitzii:lastUser'
+export const rememberUser = (user) => { try { localStorage.setItem(LAST_USER, JSON.stringify(user)) } catch { /* ignore */ } }
+export const forgetUser = () => { try { localStorage.removeItem(LAST_USER) } catch { /* ignore */ } }
+export const getRememberedUser = () => { try { return JSON.parse(localStorage.getItem(LAST_USER)) } catch { return null } }
