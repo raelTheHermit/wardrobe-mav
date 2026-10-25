@@ -1,0 +1,587 @@
+//candidateGenerator.js
+import { outfitTemplates } from '../data/outfitTemplates.js'
+import { normalizeGarments, validateGarment } from './validation.js'
+
+function dedupeOutfits(outfits) {
+  const seen = new Set()
+  return outfits.filter((outfit) => {
+    const key = [...outfit].map((item) => item.id).sort().join('|')
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+export function generateCandidates(garments, maxPerCategory = 4) {
+  const normalized = normalizeGarments(garments).filter(validateGarment)
+  const byCategory = {
+    top: [],
+    bottom: [],
+    footwear: [],
+    shoe: [],
+    outerwear: [],
+    accessory: [],
+  }
+
+  normalized.forEach((garment) => {
+    const family = garment.category?.family || garment.category
+    const alias = family === 'shoe' || family === 'shoes' ? 'shoe' : family
+    if (byCategory[alias]) byCategory[alias].push(garment)
+    if (alias === 'shoe') byCategory.footwear.push(garment)
+  })
+
+  const outfits = []
+
+  outfitTemplates.forEach((template) => {
+    const topOptions = (byCategory.top || []).slice(0, maxPerCategory)
+    const bottomOptions = (byCategory.bottom || []).slice(0, maxPerCategory)
+    const footwearOptions = [...(byCategory.footwear || []), ...(byCategory.shoe || [])].slice(0, maxPerCategory)
+    const outerwearOptions = (byCategory.outerwear || []).slice(0, Math.max(1, maxPerCategory / 2))
+    const accessoryOptions = (byCategory.accessory || []).slice(0, Math.max(1, maxPerCategory / 2))
+
+    topOptions.forEach((top) => {
+      bottomOptions.forEach((bottom) => {
+        const basePair = [top, bottom]
+        const candidates = footwearOptions.length ? footwearOptions.map((footwear) => [...basePair, footwear]) : [basePair]
+
+        candidates.forEach((candidateBase) => {
+          const optional = []
+          if (template.optional?.includes('outerwear') && outerwearOptions.length) {
+            optional.push(outerwearOptions[0])
+          }
+          if (template.optional?.includes('accessory') && accessoryOptions.length) {
+            optional.push(accessoryOptions[0])
+          }
+
+          const candidate = [...candidateBase, ...optional]
+          if (candidate.length >= 2 && candidate.every((item) => item)) {
+            outfits.push(candidate)
+          }
+        })
+      })
+    })
+  })
+
+  return dedupeOutfits(outfits)
+}
+
+//colorCompatibility.js
+import { scoringConfig } from '../data/scoringConfig.js'
+
+function normalizeColorName(value) {
+  if (!value) return ''
+  return String(value).trim().toLowerCase()
+}
+
+function colorList(item) {
+  const attrs = item?.visual_attributes || {}
+  const values = [...(attrs.primary_colors || []), ...(attrs.secondary_colors || [])]
+  if (values.length) return values.map(normalizeColorName).filter(Boolean)
+
+  const legacy = item?.color || item?.baseColor || item?.primary_color
+  return legacy ? [normalizeColorName(legacy)] : []
+}
+
+export function colorCompatibility(a, b) {
+  if (!a || !b) return scoringConfig.neutralScore
+
+  const aColors = colorList(a)
+  const bColors = colorList(b)
+  const table = scoringConfig.colorCompatibilityTable || {}
+
+  if (!aColors.length || !bColors.length) return scoringConfig.neutralScore
+
+  const scores = []
+  for (const left of aColors) {
+    for (const right of bColors) {
+      const row = table[left] || {}
+      const value = row[right] ?? scoringConfig.neutralScore
+      scores.push(value)
+    }
+  }
+
+  if (!scores.length) return scoringConfig.neutralScore
+  return Number((scores.reduce((sum, value) => sum + value, 0) / scores.length).toFixed(3))
+}
+
+
+//contextMatch.js
+import { scoringConfig } from '../data/scoringConfig.js'
+
+function getItemSuitability(item, context) {
+  const contextualTags = Array.isArray(context) ? context : [context]
+  const itemTags = [
+    ...(item?.attributes?.seasonal_suitability || []),
+    ...(item?.attributes?.functional_tags || []),
+    ...(item?.tags || []),
+    item?.occasion,
+    item?.season,
+  ]
+    .map((tag) => String(tag).toLowerCase())
+    .filter(Boolean)
+
+  const directMatch = contextualTags.some((tag) => itemTags.includes(String(tag).toLowerCase()))
+  if (directMatch) return 1
+
+  const formalityTarget = typeof context?.formality_target === 'number' ? context.formality_target : 0.5
+  const itemFormality = item?.attributes?.formality_estimate ?? item?.formality ?? 0.5
+  const formalityScore = 1 - Math.abs(itemFormality - formalityTarget)
+
+  const weatherValue = context?.weather || context?.temperature
+  if (typeof weatherValue === 'number') {
+    const seasonTags = item?.attributes?.seasonal_suitability || []
+    const weatherTag = weatherValue > 28 ? 'hot_weather' : weatherValue < 15 ? 'cold_weather' : 'mild_weather'
+    if (seasonTags.includes(weatherTag)) return 0.8
+  }
+
+  return Number((0.45 + formalityScore * 0.55).toFixed(3))
+}
+
+export function contextMatch(outfit, context = 'casual') {
+  if (!Array.isArray(outfit) || !outfit.length) return 0.5
+
+  const contextValues = {
+    casual: ['casual', 'everyday_wear', 'mild_weather', 'hot_weather'],
+    formal: ['formal', 'evening', 'workday', 'smart_casual'],
+    warm: ['hot_weather', 'summer', 'casual', 'weekend'],
+    cold: ['cold_weather', 'winter', 'workday'],
+    rainy: ['rain_protection', 'workday', 'smart_casual'],
+  }
+
+  const contextKey = context && typeof context === 'string' ? context.toLowerCase() : 'casual'
+  const activeValues = typeof context === 'object' ? [
+    context.occasion,
+    context.activity,
+    context.weather,
+    context.location,
+  ] : contextValues[contextKey] || contextValues.casual
+
+  const scores = outfit.map((item) => getItemSuitability(item, activeValues))
+  const average = scores.reduce((sum, value) => sum + value, 0) / scores.length
+  return Number(Math.min(Math.max(average, 0), 1).toFixed(3))
+}
+
+//index.js
+import { generateCandidates } from './candidateGenerator.js'
+import { rankOutfit } from './ranker.js'
+import { normalizeGarments, validateOutfit } from './validation.js'
+
+export function generateOutfits({ garments, context = 'casual', preferences = {}, history = [], limit = 5, profile = null }) {
+  const validGarments = normalizeGarments(garments).filter((item) => item.status !== 'unavailable')
+  if (!validGarments.length) return []
+
+  const candidates = generateCandidates(validGarments, 4)
+    .filter((outfit) => validateOutfit(outfit))
+    .map((outfit) => ({
+      id: outfit.map((item) => item.id).join('-'),
+      outfit,
+      ...rankOutfit(outfit, context, preferences, history, profile),
+    }))
+    .filter((entry) => entry.score >= 0.38)
+    .sort((a, b) => b.score - a.score)
+
+  const unique = []
+  const seen = new Set()
+  for (const entry of candidates) {
+    const key = entry.outfit.map((item) => item.id).sort().join('|')
+    if (seen.has(key)) continue
+    seen.add(key)
+    unique.push(entry)
+  }
+
+  return unique.slice(0, limit).map((entry) => ({
+    id: entry.id,
+    outfit: entry.outfit,
+    score: entry.score,
+    breakdown: entry.breakdown,
+    evidenceCoverage: entry.evidenceCoverage,
+  }))
+}
+
+export { generateCandidates, rankOutfit, normalizeGarments }
+
+//novelty.jsexport function novelty(outfit, history = []) {
+  if (!Array.isArray(outfit) || outfit.length === 0) return 0.5
+
+  if (!history || !history.length) return 0.5
+
+  const outfitIds = new Set(outfit.map((item) => item.id))
+  const past = history
+    .map((entry) => entry.items || entry.outfit || [])
+    .flatMap((items) => (Array.isArray(items) ? items : [items]))
+    .map((item) => item.id || item)
+
+  const bestSimilarity = past.reduce((max, previousId) => {
+    const previousSet = new Set(Array.isArray(previousId) ? previousId.map((entry) => entry.id || entry) : [previousId])
+    const intersection = [...outfitIds].filter((id) => previousSet.has(id)).length
+    const union = new Set([...outfitIds, ...previousSet]).size
+    const score = union ? intersection / union : 0
+    return Math.max(max, score)
+  }, 0)
+
+  return Number((1 - bestSimilarity).toFixed(3))
+}
+
+//outfitCompatibility.js
+
+import { pairCompatibility } from './pairCompatibility.js'
+import { colorCompatibility } from './colorCompatibility.js'
+import { silhouetteAlignment } from './silhouette.js'
+
+function globalOutfitScore(outfit) {
+  const pairScores = []
+  const paletteScores = []
+  const formalityScores = []
+
+  for (let i = 0; i < outfit.length; i += 1) {
+    for (let j = i + 1; j < outfit.length; j += 1) {
+      const pairScore = pairCompatibility(outfit[i], outfit[j])
+      pairScores.push(pairScore)
+      paletteScores.push(colorCompatibility(outfit[i], outfit[j]))
+      const formalityA = outfit[i]?.attributes?.formality_estimate ?? outfit[i]?.formality ?? 0.5
+      const formalityB = outfit[j]?.attributes?.formality_estimate ?? outfit[j]?.formality ?? 0.5
+      formalityScores.push(1 - Math.abs(formalityA - formalityB))
+    }
+  }
+
+  const palette = pairScores.length ? paletteScores.reduce((sum, value) => sum + value, 0) / paletteScores.length : 0.5
+  const formality = formalityScores.length ? formalityScores.reduce((sum, value) => sum + value, 0) / formalityScores.length : 0.5
+  const pairAverage = pairScores.length ? pairScores.reduce((sum, value) => sum + value, 0) / pairScores.length : 0.5
+
+  return (pairAverage * 0.7 + ((palette + formality) / 2) * 0.3)
+}
+
+export function outfitCompatibility(outfit) {
+  if (!Array.isArray(outfit) || outfit.length < 2) return 0.5
+
+  const pairScores = []
+  for (let i = 0; i < outfit.length; i += 1) {
+    for (let j = i + 1; j < outfit.length; j += 1) {
+      pairScores.push(pairCompatibility(outfit[i], outfit[j]))
+    }
+  }
+
+  const pairAverage = pairScores.length
+    ? pairScores.reduce((sum, score) => sum + score, 0) / pairScores.length
+    : 0.5
+
+  const global = globalOutfitScore(outfit)
+  const final = 0.7 * pairAverage + 0.3 * global
+  return Number(Math.min(Math.max(final, 0), 1).toFixed(3))
+}
+
+//pairCompatibility
+
+import { scoringConfig } from '../data/scoringConfig.js'
+import { colorCompatibility } from './colorCompatibility.js'
+
+function garmentFormality(item) {
+  const formality = item?.attributes?.formality_estimate ?? item?.formality ?? item?.attributes?.formality
+  if (typeof formality === 'number') return Math.max(0, Math.min(1, formality))
+  if (typeof item?.formality === 'number') return Math.max(0, Math.min(1, item.formality / 5))
+  return 0.5
+}
+
+function patternOf(item) {
+  return item?.visual_attributes?.pattern || item?.pattern || 'solid'
+}
+
+function styleSet(item) {
+  const fromTags = item?.style_associations?.possible_aesthetics || item?.style_associations || []
+  if (Array.isArray(fromTags)) return new Set(fromTags.map(String))
+  if (fromTags && typeof fromTags === 'object') {
+    return new Set(Object.keys(fromTags))
+  }
+  const styleValue = item?.style || item?.aesthetic || ''
+  return styleValue ? new Set([styleValue]) : new Set()
+}
+
+function jaccard(setA, setB) {
+  const union = new Set([...setA, ...setB])
+  if (!union.size) return 0.5
+  const intersection = [...union].filter((value) => setA.has(value) && setB.has(value)).length
+  return intersection / union.size
+}
+
+export function pairCompatibility(a, b) {
+  if (!a || !b) return scoringConfig.neutralScore
+
+  const styleScore = jaccard(styleSet(a), styleSet(b))
+  const colorScore = colorCompatibility(a, b)
+  const patternTable = scoringConfig.patternCompatibilityTable || {}
+  const patternA = patternOf(a)
+  const patternB = patternOf(b)
+  const patternScore = patternTable[patternA]?.[patternB] ?? scoringConfig.neutralScore
+  const formalityScore = 1 - Math.abs(garmentFormality(a) - garmentFormality(b))
+
+  const weights = scoringConfig.pairwiseWeights
+  const numerator =
+    colorScore * weights.color +
+    patternScore * weights.pattern +
+    formalityScore * weights.formality +
+    styleScore * weights.style
+
+  const total = Object.values(weights).reduce((sum, value) => sum + value, 0)
+  return Number((numerator / total).toFixed(3))
+}
+
+
+//personalPreference.js
+
+export function personalPreference(outfit, preferences = {}) {
+  if (!Array.isArray(outfit) || outfit.length === 0) return 0.5
+
+  const preferredStyles = (preferences.styles || []).map((style) => String(style).toLowerCase())
+  const preferredColors = (preferences.colors || []).map((color) => String(color).toLowerCase())
+  const preferredMaterials = (preferences.materials || []).map((material) => String(material).toLowerCase())
+  const excludedColors = (preferences.excludedColors || []).map((color) => String(color).toLowerCase())
+  const formalityBias = Number(preferences.formalityBias || 3)
+
+  const itemScores = outfit.map((item) => {
+    const primaryColors = item?.visual_attributes?.primary_colors || [item?.color || '']
+    const styleTags = item?.style_associations?.possible_aesthetics || [item?.style || '']
+    const material = item?.material?.primary || item?.material || ''
+    const itemFormality = item?.attributes?.formality_estimate ?? item?.formality ?? 0.5
+
+    let score = 0.5
+
+    if (preferredStyles.length && styleTags.some((tag) => preferredStyles.includes(String(tag).toLowerCase()))) score += 0.25
+    if (preferredColors.length && primaryColors.some((color) => preferredColors.includes(String(color).toLowerCase()))) score += 0.25
+    if (preferredMaterials.length && preferredMaterials.includes(String(material).toLowerCase())) score += 0.2
+    if (itemFormality <= formalityBias / 5) score += 0.1
+
+    if (excludedColors.length && primaryColors.some((color) => excludedColors.includes(String(color).toLowerCase()))) score -= 0.4
+
+    return Math.min(Math.max(score, 0), 1)
+  })
+
+  const average = itemScores.reduce((sum, value) => sum + value, 0) / itemScores.length
+  return Number(Math.min(Math.max(average, 0), 1).toFixed(3))
+}
+
+//ranker.js
+
+import { scoringConfig } from '../data/scoringConfig.js'
+import { buildFitCompatibility } from '../utils/bodyProfile.js'
+import { contextMatch } from './contextMatch.js'
+import { novelty } from './novelty.js'
+import { outfitCompatibility } from './outfitCompatibility.js'
+import { personalPreference } from './personalPreference.js'
+import { silhouettePreferenceScore } from './silhouette.js'
+import { styleMatch } from './styleMatch.js'
+
+export function rankOutfit(outfit, context = 'casual', preferences = {}, history = [], profile = null) {
+  const compatibility = outfitCompatibility(outfit)
+  const requestedAesthetic = preferences.aesthetic || preferences.favoriteAesthetic || null
+  const aesthetic = requestedAesthetic ? styleMatch(outfit, requestedAesthetic) : 0.5
+  const contextScore = contextMatch(outfit, context)
+  const personal = personalPreference(outfit, preferences)
+  const silhouette = silhouettePreferenceScore(outfit, preferences)
+  const noveltyScore = novelty(outfit, history)
+  const fitScore = profile ? buildFitCompatibility(outfit, profile) : null
+
+  const baseWeights = { ...scoringConfig.mainWeights }
+  if (fitScore !== null) {
+    baseWeights.fit = 0.09
+  }
+  const baseTotal = Object.values(baseWeights).reduce((sum, value) => sum + value, 0)
+
+  const weightEntries = [
+    ['compatibility', baseWeights.compatibility],
+    ['context', baseWeights.context],
+    ['personal', baseWeights.personal],
+    ['silhouette', baseWeights.silhouette],
+    ['novelty', baseWeights.novelty],
+  ]
+
+  if (requestedAesthetic) {
+    weightEntries.push(['aesthetic', baseWeights.aesthetic])
+  }
+  if (fitScore !== null) {
+    weightEntries.push(['fit', baseWeights.fit])
+  }
+
+  let score =
+    compatibility * baseWeights.compatibility +
+    contextScore * baseWeights.context +
+    personal * baseWeights.personal +
+    silhouette * baseWeights.silhouette +
+    noveltyScore * baseWeights.novelty
+
+  if (requestedAesthetic) {
+    score += aesthetic * baseWeights.aesthetic
+  }
+
+  if (fitScore !== null) {
+    score += fitScore * baseWeights.fit
+  }
+
+  const adjustedScore = requestedAesthetic ? score : score / (baseTotal - (requestedAesthetic ? baseWeights.aesthetic : 0)) * baseTotal
+  const finalScore = Number(Math.min(Math.max(adjustedScore + noveltyScore * 0.03, 0), 1.2).toFixed(3))
+
+  return {
+    score: finalScore,
+    breakdown: {
+      compatibility,
+      aesthetic: requestedAesthetic ? aesthetic : 0,
+      context: contextScore,
+      personal,
+      silhouette,
+      novelty: noveltyScore,
+      fit: fitScore ?? 0.5,
+    },
+    evidenceCoverage: fitScore === null ? 0.8 : 0.9,
+    weights: weightEntries,
+  }
+}
+
+//silhouette.js
+const volumeMap = { low: 0.2, medium: 0.5, high: 0.8, regular: 0.5, uncertain: 0.5 }
+const lengthMap = { cropped: 0.2, short: 0.35, regular: 0.5, long: 0.75, extra_long: 0.9, uncertain: 0.5 }
+
+function getVolume(item) {
+  const value = item?.fit_and_proportions?.relative_volume || item?.volume || item?.fit
+  return volumeMap[value] ?? 0.5
+}
+
+function getLength(item) {
+  const value = item?.fit_and_proportions?.relative_length || item?.length || 'regular'
+  return lengthMap[value] ?? 0.5
+}
+
+export function silhouetteAlignment(a, b) {
+  if (!a || !b) return 0.5
+
+  const volumeDiff = Math.abs(getVolume(a) - getVolume(b))
+  const lengthDiff = Math.abs(getLength(a) - getLength(b))
+  const volumeScore = 1 - volumeDiff
+  const lengthScore = 1 - lengthDiff
+
+  return Number(Math.min(Math.max((volumeScore + lengthScore) / 2, 0), 1).toFixed(3))
+}
+
+export function silhouettePreferenceScore(outfit, preferences = {}) {
+  if (!Array.isArray(outfit) || !outfit.length) return 0.5
+
+  const targetVolumeDifference = preferences.targetVolumeDifference ?? 0.1
+  const targetLengthDifference = preferences.targetLengthDifference ?? 0.1
+
+  const scores = outfit.map((item) => {
+    const top = item.category?.family === 'top' || item.category === 'top'
+    const bottom = item.category?.family === 'bottom' || item.category === 'bottom'
+    if (!top && !bottom) return 0.5
+
+    const volume = getVolume(item)
+    const length = getLength(item)
+    const ideal = top ? 1 - Math.abs(volume - 0.45) : 1 - Math.abs(volume - 0.5)
+    const lengthIdeal = 1 - Math.abs(length - (top ? 0.5 : 0.55))
+    return (ideal + lengthIdeal) / 2
+  })
+
+  const base = scores.reduce((sum, value) => sum + value, 0) / scores.length
+  return Number(Math.min(Math.max(base + targetVolumeDifference + targetLengthDifference - 0.2, 0), 1).toFixed(3))
+}
+
+//styleMatch.js
+export function styleMatch(outfit, aestheticPreference = 'minimal') {
+  if (!Array.isArray(outfit) || outfit.length === 0) return 0.5
+
+  const requested = String(aestheticPreference).toLowerCase()
+  const scores = outfit.map((item) => {
+    const tags = item?.style_associations?.possible_aesthetics || []
+    const normalized = tags.map((tag) => String(tag).toLowerCase())
+
+    if (!normalized.length) return 0.5
+    if (normalized.includes(requested)) return 1
+    if (normalized.some((tag) => tag.includes(requested))) return 0.8
+    return 0.55
+  })
+
+  return Number((scores.reduce((sum, value) => sum + value, 0) / scores.length).toFixed(3))
+}
+
+
+//validation.js
+
+function normalizeFamily(value) {
+  if (!value) return null
+  const family = String(value).toLowerCase()
+  if (family === 'shoe' || family === 'shoes' || family === 'footwear') return 'footwear'
+  return family
+}
+
+function familyOf(item) {
+  if (!item || typeof item !== 'object') return null
+  const direct = item.category?.family || item.category || item.type || null
+  return normalizeFamily(direct)
+}
+
+function normalizeLegacyGarment(item) {
+  if (!item || typeof item !== 'object') return null
+  if (Array.isArray(item)) return null
+
+  const categoryFamily = normalizeFamily(item.category?.family || item.category || familyOf(item) || 'unknown')
+  if (!item.id || !item.name || !categoryFamily) return null
+
+  return {
+    ...item,
+    category: item.category?.family ? { ...item.category, family: categoryFamily } : { family: categoryFamily, type: item.type || 'unknown', subtype: item.subtype || null },
+    status: item.status || 'available',
+    visual_attributes: item.visual_attributes || {
+      primary_colors: item.color ? [item.color] : [],
+      secondary_colors: [],
+      pattern: item.pattern || 'solid',
+      graphic_or_print: null,
+      texture: item.material || 'smooth',
+    },
+    attributes: item.attributes || {
+      formality_estimate: typeof item.formality === 'number' ? item.formality / 5 : 0.5,
+      visual_weight_estimate: 0.5,
+      seasonal_suitability: item.season ? [item.season] : [],
+      functional_tags: item.tags || [],
+    },
+    fit_and_proportions: item.fit_and_proportions || {
+      apparent_fit: item.fit || 'regular',
+      silhouette: item.silhouette || 'straight',
+      relative_length: 'regular',
+      relative_volume: 'medium',
+    },
+    style_associations: item.style_associations || {
+      possible_aesthetics: item.aesthetic ? [item.aesthetic] : item.style ? [item.style] : [],
+    },
+  }
+}
+
+export function validateGarment(item) {
+  const garment = normalizeLegacyGarment(item)
+  if (!garment) return false
+
+  const family = familyOf(garment)
+  if (!garment.id || !garment.name || !family) return false
+  if (garment.status === 'unavailable') return false
+  return true
+}
+
+export function validateOutfit(outfit) {
+  if (!Array.isArray(outfit) || outfit.length === 0) return false
+  const ids = new Set()
+
+  for (const item of outfit) {
+    const garment = normalizeLegacyGarment(item)
+    if (!garment || ids.has(garment.id)) return false
+    ids.add(garment.id)
+  }
+
+  const families = outfit.map((item) => familyOf(item) || item.category || '').filter(Boolean)
+  const hasTop = families.includes('top')
+  const hasBottom = families.includes('bottom')
+  return hasTop && hasBottom
+}
+
+export function normalizeGarments(items) {
+  const source = Array.isArray(items) ? items : items?.items || []
+  return source
+    .map((item) => normalizeLegacyGarment(item))
+    .filter(Boolean)
+    .filter((item) => item.status !== 'unavailable')
+}

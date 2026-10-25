@@ -1,7 +1,8 @@
-import { buildExplanation } from '../utils/explanation.js'
+import { buildExplanation } from '../engine/explanation.js'
 import { getCategoryFamily } from '../utils/garmentHelpers.js'
+import { getTemplate } from '../data/outfitTemplates.js'
 
-export default function OutfitCard({ outfit, score, breakdown, onSave }) {
+export default function OutfitCard({ outfit, score, breakdown, onSave, templates = [] }) {
   const swatches = outfit.map((item) => item.hex || item.visual_attributes?.primary_colors?.[0] || item.color || '#dfeaf6')
 
   return (
@@ -18,6 +19,7 @@ export default function OutfitCard({ outfit, score, breakdown, onSave }) {
       <div className="mt-4 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h3 className="line-clamp-2 text-base font-semibold text-slate-900">{outfit.map((item) => item.name).join(' + ')}</h3>
+          {templates.length ? <div className="mt-2 flex flex-wrap gap-1">{templates.map((id) => getTemplate(id)?.label).filter(Boolean).map((label) => <span key={label} className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">{label}</span>)}</div> : null}
           <p className="mt-2 text-sm leading-6 text-slate-600">{buildExplanation(outfit, breakdown)}</p>
         </div>
 

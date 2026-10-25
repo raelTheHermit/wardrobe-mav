@@ -4,7 +4,7 @@ Fitzii is a personal outfit-planning app built from a simple idea: not everyone 
 
 This project started as a personal tool to help me get dressed with less guesswork. It turns a closet into a recommendation engine: it looks at what I own, how it fits, what looks good together, and which outfit best matches the moment.
 
-The app keeps a deterministic scoring engine in the frontend and exposes the same logic through the Flask API, so the browser and server use the same recommendation rules instead of drifting into two separate interpretations.
+The app uses a deterministic, rule-based outfit engine in the frontend. The Flask recommendations endpoint calls that same engine through `backend/recommendations.mjs`.
 
 ## What Fitzii does
 
@@ -12,7 +12,8 @@ The app keeps a deterministic scoring engine in the frontend and exposes the sam
 - scores outfit combinations against context, fit, formality, and color harmony
 - personalizes suggestions using your profile and style preferences
 - saves favorite outfits and keeps a small history of previous picks
-- works offline while the browser queues local changes and syncs them when the connection returns
+- keeps the app shell and cached wardrobe available offline after the PWA has loaded once
+- saves wardrobe, profile, preference, and outfit-history changes locally and queues supported API writes for sync after reconnecting
 
 ## Why the app exists
 
@@ -24,53 +25,30 @@ The main dashboard puts that story front and center: the Today screen shows a fo
 
 Fitzii does not rely on a black-box model. It applies explicit style rules and weighted checks to each outfit candidate.
 
-The core idea is:
-
-- a + b = 100
-- a = the outfit quality score from fit, context, and compatibility
-- b = the personal preference and style score from your profile, history, and taste
-
-In practice, the app adds several sub-scores together before capping the result to a believable range:
-
-- silhouette compatibility
-- color harmony
-- occasion or context match
-- formality balance
-- garment variety and coordination
-- personal fit and body-measurement alignment
-- preferred style and aesthetic weighting
-
-The engine then ranks candidates with a total score like this:
+The engine builds candidates from the available garments, removes incoherent combinations, scores each outfit from 0 to 1, then picks a varied top set. Its default weights are:
 
 ```text
-final score = compatibility × 0.30
-            + context × 0.20
-            + personal preference × 0.15
-            + silhouette × 0.10
-            + aesthetic × 0.25
-            + fit × 0.09
-            + novelty × 0.03
+compatibility × 0.26 + aesthetic × 0.18 + context × 0.18
++ personal × 0.12 + silhouette × 0.08 + fit × 0.08
++ template × 0.06 + novelty × 0.04
 ```
 
-A concrete example:
+Factors without evidence are skipped and the active weights are renormalized to 1. Fit needs profile measurements, novelty needs outfit history, and template fit is only used when a vibe is selected. Aesthetic is scored when a selected aesthetic has garment data to compare.
+
+For example, when aesthetic, fit, novelty, and template fit have no usable evidence:
 
 ```text
-compatibility = 0.82
-context = 0.90
-personal = 0.74
-silhouette = 0.76
-aesthetic = 0.81
-fit = 0.88
-novelty = 0.43
-
-score = (0.82 × 0.30) + (0.90 × 0.20) + (0.74 × 0.15) + (0.76 × 0.10)
-      + (0.81 × 0.25) + (0.88 × 0.09) + (0.43 × 0.03)
-      = 0.78
+active factors = compatibility, context, personal, silhouette
+active weight = 0.26 + 0.18 + 0.12 + 0.08 = 0.64
+score = (compatibility × 0.26 + context × 0.18
+       + personal × 0.12 + silhouette × 0.08) / 0.64
 ```
 
-That number is then normalized so the top outfit is easy to compare against the next-best option. Each card also shows a breakdown so a user can see whether a look won because of fit, style, color, occasion, or silhouette.
+Compatibility combines color, pattern, formality, and style scores for garment pairs, then accounts for hue variety, loud patterns, and formality spread across the outfit. Context checks occasion formality and weather. Personal preference uses selected styles, colors, materials, exclusions, and formality bias. Silhouette checks garment proportions. Each outfit card shows an explanation based on the available score breakdown.
 
-The fit score specifically compares the profile measurements such as chest, waist, hip, and inseam to the garment’s measurements and size labels. If a garment is clearly too large or too tight for the user, its fit score drops before the final outfit ranking is calculated.
+`bodyProfile.js` supplies the fit score when the profile has measurements. The vibe selector offers Day Ease, City Formal, Weekend Creative, Alté, Old Money, and One Piece. Each template can constrain formality, exclude items, control color and pattern mixing, and contribute a template-fit score. “All vibes” generates candidates across templates.
+
+Garment data can come from form fields or AI/API tagging. The feature normalizer infers missing family, color, pattern, formality, and climate details from garment names where possible. Unavailable details remain unknown and are excluded from factors that need them.
 
 ## Project layout
 
@@ -108,15 +86,16 @@ flask --app wsgi:app run --debug
 
 ## Frontend setup
 
-At the repo root:
+In a second terminal, run the frontend:
 
 ```sh
+cd frontend
 npm install
 cp .env.example .env.local
 npm run dev
 ```
 
-The frontend connects to the local API at `http://localhost:5000/api` by default. The app is designed to work locally first, then sync queued writes when the network is available again.
+The frontend connects to `http://localhost:5000/api` by default. Set `VITE_API_BASE_URL` in `frontend/.env.local` to use another API URL. Create an account or sign in while online to establish the server session. After the app has loaded once, its PWA shell and locally cached data remain available offline; changes to wardrobe items, profile, preferences, and outfit history are queued and retried when the browser reports that it is online. Account registration and login require a connection. Installable PWA behavior requires HTTPS in deployment (localhost is treated as secure for development).
 
 ## Image review and import
 
@@ -156,7 +135,7 @@ npm test
 npm run build
 ```
 
-These checks are designed to validate the recommendation engine, browser UI, and production bundle while keeping the app easy to run locally.
+These commands run the frontend lint checks, test suite, and production build.
 
 ## Notes
 

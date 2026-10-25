@@ -7,11 +7,14 @@ import Explore from './pages/Explore.jsx'
 import Preferences from './pages/Preferences.jsx'
 import MyProfile from './pages/MyProfile.jsx'
 import { loadFromStorage, saveToStorage, storageKeys } from './utils/storage.js'
-import { buildFitCompatibility, createDefaultProfile } from './utils/bodyProfile.js'
+import { createDefaultProfile } from './utils/bodyProfile.js'
+import { generateOutfits } from './engine/index.js'
 import guestWardrobeSeed from './data/guestWardrobe.json'
 import { exportWardrobePayload, importWardrobeRecords } from './utils/wardrobeStorage.js'
 import { apiRequest, authApi, setUnauthorizedHandler } from './utils/api.js'
 import { loadUserSession, syncUserData } from './utils/syncData.js'
+import { outfitTemplates } from './data/outfitTemplates.js'
+import { syncQueuedOperations } from './utils/offlineSync.js'
 
 const demoAccount = { id: 'demo-guest', name: 'Rael', email: 'guest@fitzii.local', guest: true }
 const demoPreferences = {
@@ -22,45 +25,6 @@ const demoPreferences = {
 }
 
 const defaultPreferences = demoPreferences
-
-function generateLocalOutfits(garments, context, preferences, aesthetic, profile) {
-  const available = garments.filter((item) => (item.status || 'available') === 'available')
-  const tops = available.filter((item) => item.category === 'top')
-  const bottoms = available.filter((item) => item.category === 'bottom')
-  const shoes = available.filter((item) => item.category === 'shoe' || item.category === 'footwear')
-  const outerwear = available.filter((item) => item.category === 'outerwear')
-
-  const outfitSet = []
-
-  for (const top of tops.slice(0, 5)) {
-    for (const bottom of bottoms.slice(0, 5)) {
-      const shoeOptions = shoes.slice(0, 3)
-      for (const shoe of shoeOptions.length ? shoeOptions : available.slice(0, 1)) {
-        const layers = [...outerwear.slice(0, 2), ...[]]
-        const outfit = [top, bottom, shoe, ...layers].slice(0, 4)
-        const fitScore = buildFitCompatibility(outfit, profile)
-        const base = {
-          style: preferences.styles?.includes(top.style) ? 0.22 : 0.08,
-          color: preferences.colors?.includes(top.color) || preferences.colors?.includes(bottom.color) ? 0.18 : 0.07,
-          material: preferences.materials?.includes(top.material) || preferences.materials?.includes(bottom.material) ? 0.17 : 0.06,
-          context: (top.occasion === context || bottom.occasion === context || shoe.occasion === context) ? 0.18 : 0.08,
-          aesthetic: top.aesthetic === aesthetic || bottom.aesthetic === aesthetic ? 0.18 : 0.06,
-          fit: fitScore,
-        }
-
-        const score = Math.min(0.99, 0.38 + Object.values(base).reduce((sum, value) => sum + value, 0))
-        outfitSet.push({
-          id: `${top.id}-${bottom.id}-${shoe.id}`,
-          outfit,
-          score: Number(score.toFixed(2)),
-          breakdown: base,
-        })
-      }
-    }
-  }
-
-  return outfitSet.sort((a, b) => b.score - a.score).slice(0, 6)
-}
 
 const navItems = [
   ['today', 'Today'],
@@ -92,6 +56,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true)
   const [recommendedOutfits, setRecommendedOutfits] = useState([])
   const [aestheticOutfits, setAestheticOutfits] = useState([])
+  const [template, setTemplate] = useState(null)
 
   const hydrateAuthenticatedSession = async (activeAccount) => {
     if (!activeAccount) return
@@ -206,7 +171,7 @@ function App() {
 
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
-    handleOnline()
+    setIsOffline(!navigator.onLine)
 
     return () => {
       window.removeEventListener('online', handleOnline)
@@ -220,15 +185,21 @@ function App() {
 
   useEffect(() => {
     if (!garments.length) return
-    const general = generateLocalOutfits(garments, context, preferences, aesthetic, profile)
-    const favorite = generateLocalOutfits(garments, context, { ...preferences, styles: [aesthetic] }, aesthetic, profile)
+    const base = { garments, context, history, profile, limit: 6, template }
+    const general = generateOutfits({ ...base, preferences: { ...preferences, aesthetic } })
+    const favorite = generateOutfits({ ...base, preferences: { ...preferences, aesthetic, styles: [aesthetic] } })
     setRecommendedOutfits(general)
     setAestheticOutfits(favorite)
-  }, [aesthetic, context, garments, preferences, profile])
+  }, [aesthetic, context, garments, preferences, profile, history, template])
+
+  useEffect(() => {
+    if (!isOffline && account) syncQueuedOperations(apiRequest).catch(() => {})
+  }, [isOffline, account])
 
   const persistPreferences = (next) => {
     setPreferences(next)
     saveToStorage(storageKeys.preferences, next)
+    apiRequest('/preferences', { method: 'PUT', body: JSON.stringify(next) }).catch(() => {})
     setApiError('')
   }
 
@@ -247,6 +218,7 @@ function App() {
     const timestamp = Date.now()
     setHistory((current) => [{ items: entry.outfit, timestamp }, ...current].slice(0, 12))
     saveToStorage(storageKeys.history, [{ items: entry.outfit, timestamp }, ...history].slice(0, 12))
+    apiRequest('/history', { method: 'POST', body: JSON.stringify({ id: `saved-${timestamp}`, garmentIds: entry.outfit.map((item) => item.id), context, score: entry.score }) }).catch(() => {})
   }
 
   const handleSignUp = async ({ name, username, password }) => {
@@ -410,6 +382,7 @@ function App() {
     const saved = { ...normalized, id: normalized.id || `g-${Date.now()}` }
     setGarments((current) => [saved, ...current])
     saveToStorage(storageKeys.wardrobe, [saved, ...garments])
+    apiRequest('/wardrobe', { method: 'POST', body: JSON.stringify(saved) }).catch(() => {})
     setApiError('')
     return saved
   }
@@ -418,6 +391,7 @@ function App() {
     const saved = { ...garment, status: garment.status || 'available' }
     setGarments((current) => current.map((item) => item.id === saved.id ? saved : item))
     saveToStorage(storageKeys.wardrobe, garments.map((item) => item.id === saved.id ? saved : item))
+    apiRequest(`/wardrobe/${encodeURIComponent(saved.id)}`, { method: 'PATCH', body: JSON.stringify(saved) }).catch(() => {})
     setApiError('')
     return saved
   }
@@ -425,6 +399,7 @@ function App() {
   const handleDeleteGarment = async (garmentId) => {
     setGarments((current) => current.filter((item) => item.id !== garmentId))
     saveToStorage(storageKeys.wardrobe, garments.filter((item) => item.id !== garmentId))
+    apiRequest(`/wardrobe/${encodeURIComponent(garmentId)}`, { method: 'DELETE' }).catch(() => {})
     setApiError('')
     setSavedOutfits((current) => current.filter((entry) => !entry.outfit?.some((item) => item.id === garmentId)))
   }
@@ -602,6 +577,9 @@ function App() {
               aestheticOutfits={aestheticOutfits}
               currentContext={context}
               currentAesthetic={aesthetic}
+              templates={outfitTemplates}
+              currentTemplate={template}
+              onTemplateChange={setTemplate}
               formalityBias={preferences.formalityBias || 3}
               onContextChange={setContext}
               onAestheticChange={setAesthetic}
@@ -628,7 +606,11 @@ function App() {
         {page === 'profile' ? (
           <MyProfile
             profile={profile}
-            onProfileChange={setProfile}
+            onProfileChange={(nextProfile) => {
+              setProfile(nextProfile)
+              saveToStorage(storageKeys.profile, nextProfile)
+              apiRequest('/profile', { method: 'PUT', body: JSON.stringify(nextProfile) }).catch(() => {})
+            }}
             onSaveProfile={() => {
               saveToStorage(storageKeys.profile, profile)
               setApiError('')

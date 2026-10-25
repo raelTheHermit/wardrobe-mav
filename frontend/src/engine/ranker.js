@@ -1,73 +1,75 @@
-import { scoringConfig } from '../data/scoringConfig.js'
-import { buildFitCompatibility } from '../utils/bodyProfile.js'
-import { contextMatch } from './contextMatch.js'
-import { novelty } from './novelty.js'
-import { outfitCompatibility } from './outfitCompatibility.js'
-import { personalPreference } from './personalPreference.js'
-import { silhouettePreferenceScore } from './silhouette.js'
-import { styleMatch } from './styleMatch.js'
+import { scoringConfig } from "../data/scoringConfig.js";
+import { buildFitCompatibility } from "../utils/bodyProfile.js";
+import { contextDetail } from "./contextMatch.js";
+import { clamp01, hasProfileData, round } from "./garmentFeatures.js";
+import { noveltyDetail } from "./novelty.js";
+import { personalPreferenceDetail } from "./personalPreference.js";
+import { silhouettePreferenceScore } from "./silhouette.js";
+import { styleMatchDetail } from "./styleMatch.js";
+import { templateFitDetail } from "./templateFit.js";
+import { outfitCompatibility } from "./outfitCompatibility.js";
 
-export function rankOutfit(outfit, context = 'casual', preferences = {}, history = [], profile = null) {
-  const compatibility = outfitCompatibility(outfit)
-  const requestedAesthetic = preferences.aesthetic || preferences.favoriteAesthetic || null
-  const aesthetic = requestedAesthetic ? styleMatch(outfit, requestedAesthetic) : 0.5
-  const contextScore = contextMatch(outfit, context)
-  const personal = personalPreference(outfit, preferences)
-  const silhouette = silhouettePreferenceScore(outfit, preferences)
-  const noveltyScore = novelty(outfit, history)
-  const fitScore = profile ? buildFitCompatibility(outfit, profile) : null
-
-  const baseWeights = { ...scoringConfig.mainWeights }
-  if (fitScore !== null) {
-    baseWeights.fit = 0.09
+function safeFit(outfit, profile) {
+  try {
+    const result = buildFitCompatibility(outfit, profile);
+    const value = typeof result === "number" ? result : result?.score;
+    return Number.isFinite(value) ? clamp01(value) : null;
+  } catch {
+    return null;
   }
-  const baseTotal = Object.values(baseWeights).reduce((sum, value) => sum + value, 0)
+}
 
-  const weightEntries = [
-    ['compatibility', baseWeights.compatibility],
-    ['context', baseWeights.context],
-    ['personal', baseWeights.personal],
-    ['silhouette', baseWeights.silhouette],
-    ['novelty', baseWeights.novelty],
-  ]
+export function rankOutfit(
+  outfit,
+  context = "casual",
+  preferences = {},
+  history = [],
+  profile = null,
+  template = null,
+) {
+  const requestedAesthetic =
+    preferences.aesthetic || preferences.favoriteAesthetic || null;
 
-  if (requestedAesthetic) {
-    weightEntries.push(['aesthetic', baseWeights.aesthetic])
-  }
-  if (fitScore !== null) {
-    weightEntries.push(['fit', baseWeights.fit])
-  }
+  const ctx = contextDetail(outfit, context);
+  const style = requestedAesthetic
+    ? styleMatchDetail(outfit, requestedAesthetic)
+    : null;
+  const personal = personalPreferenceDetail(outfit, preferences, context);
+  const hist = noveltyDetail(outfit, history);
 
-  let score =
-    compatibility * baseWeights.compatibility +
-    contextScore * baseWeights.context +
-    personal * baseWeights.personal +
-    silhouette * baseWeights.silhouette +
-    noveltyScore * baseWeights.novelty
+  // null = "no evidence for this factor". It is left out of the score and the breakdown shows it
+  // as unavailable, instead of counting it as 0%.
+  const values = {
+    compatibility: outfitCompatibility(outfit, template?.rules),
+    context: ctx.score,
+    silhouette: silhouettePreferenceScore(outfit, preferences, profile),
+    aesthetic: style && style.coverage > 0 ? style.score : null,
+    personal: personal.active ? personal.score : null,
+    fit: hasProfileData(profile) ? safeFit(outfit, profile) : null,
+    novelty: hist.hasHistory ? hist.score : null,
+    template: template ? templateFitDetail(outfit, template).score : null,
+  };
 
-  if (requestedAesthetic) {
-    score += aesthetic * baseWeights.aesthetic
-  }
-
-  if (fitScore !== null) {
-    score += fitScore * baseWeights.fit
-  }
-
-  const adjustedScore = requestedAesthetic ? score : score / (baseTotal - (requestedAesthetic ? baseWeights.aesthetic : 0)) * baseTotal
-  const finalScore = Number(Math.min(Math.max(adjustedScore + noveltyScore * 0.03, 0), 1.2).toFixed(3))
+  const all = scoringConfig.mainWeights;
+  const active = Object.keys(all).filter((key) => values[key] !== null);
+  const activeTotal = active.reduce((sum, key) => sum + all[key], 0);
+  const weights = Object.fromEntries(
+    active.map((key) => [key, round(all[key] / activeTotal, 4)]),
+  );
+  const score = active.reduce(
+    (sum, key) => sum + values[key] * weights[key],
+    0,
+  );
 
   return {
-    score: finalScore,
-    breakdown: {
-      compatibility,
-      aesthetic: requestedAesthetic ? aesthetic : 0,
-      context: contextScore,
-      personal,
-      silhouette,
-      novelty: noveltyScore,
-      fit: fitScore ?? 0.5,
-    },
-    evidenceCoverage: fitScore === null ? 0.8 : 0.9,
-    weights: weightEntries,
-  }
+    score: round(clamp01(score)),
+    breakdown: values,
+    weights,
+    // Share of the full weight budget that was backed by real data.
+    evidenceCoverage: round(
+      activeTotal / Object.values(all).reduce((s, w) => s + w, 0),
+      2,
+    ),
+    blocked: ctx.worst < scoringConfig.thresholds.hardFail,
+  };
 }

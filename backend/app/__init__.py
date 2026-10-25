@@ -31,7 +31,7 @@ def create_app(test_config=None):
         origin.strip()
         for origin in os.getenv(
             'FRONTEND_ORIGIN',
-            'http://localhost:5173,https://fitzii.vercel.app,https://www.fitzii.vercel.app,https://app-nu-seven-87.vercel.app'
+            'http://localhost:5173,https://fitzii.vercel.app,https://www.fitzii.vercel.app'
         ).split(',')
         if origin.strip()
     ]

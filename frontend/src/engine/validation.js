@@ -1,82 +1,81 @@
-function normalizeFamily(value) {
-  if (!value) return null
-  const family = String(value).toLowerCase()
-  if (family === 'shoe' || family === 'shoes' || family === 'footwear') return 'footwear'
-  return family
-}
+import { familyOf, getFeatures } from "./garmentFeatures.js";
 
-function familyOf(item) {
-  if (!item || typeof item !== 'object') return null
-  const direct = item.category?.family || item.category || item.type || null
-  return normalizeFamily(direct)
-}
+// Cleans one garment without inventing data. The old version filled in ivory / minimal / cotton /
+// medium-volume defaults, which made every unedited garment look identical to the scorers.
+function normalizeGarment(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+  if (!item.id || !item.name || item.deleted_at) return null;
 
-function normalizeLegacyGarment(item) {
-  if (!item || typeof item !== 'object') return null
-  if (Array.isArray(item)) return null
+  const family = familyOf(item);
+  if (!family) return null;
 
-  const categoryFamily = normalizeFamily(item.category?.family || item.category || familyOf(item) || 'unknown')
-  if (!item.id || !item.name || !categoryFamily) return null
-
-  return {
+  const category =
+    typeof item.category === "object" && item.category ? item.category : {};
+  const normalized = {
     ...item,
-    category: item.category?.family ? { ...item.category, family: categoryFamily } : { family: categoryFamily, type: item.type || 'unknown', subtype: item.subtype || null },
-    status: item.status || 'available',
-    visual_attributes: item.visual_attributes || {
-      primary_colors: item.color ? [item.color] : [],
-      secondary_colors: [],
-      pattern: item.pattern || 'solid',
-      graphic_or_print: null,
-      texture: item.material || 'smooth',
+    category: {
+      ...category,
+      family,
+      type: category.type || item.type || "unknown",
+      subtype: category.subtype ?? item.subtype ?? null,
     },
-    attributes: item.attributes || {
-      formality_estimate: typeof item.formality === 'number' ? item.formality / 5 : 0.5,
-      visual_weight_estimate: 0.5,
-      seasonal_suitability: item.season ? [item.season] : [],
-      functional_tags: item.tags || [],
-    },
+    status: item.status || "available",
+    visual_attributes: item.visual_attributes?.primary_colors?.length
+      ? item.visual_attributes
+      : {
+          ...(item.visual_attributes || {}),
+          primary_colors: item.color ? [item.color] : [],
+          secondary_colors: item.visual_attributes?.secondary_colors || [],
+          pattern: item.visual_attributes?.pattern || item.pattern || "solid",
+        },
     fit_and_proportions: item.fit_and_proportions || {
-      apparent_fit: item.fit || 'regular',
-      silhouette: item.silhouette || 'straight',
-      relative_length: 'regular',
-      relative_volume: 'medium',
+      apparent_fit: item.fit,
+      silhouette: item.silhouette,
     },
-    style_associations: item.style_associations || {
-      possible_aesthetics: item.aesthetic ? [item.aesthetic] : item.style ? [item.style] : [],
-    },
-  }
+    style_associations: item.style_associations?.possible_aesthetics
+      ? item.style_associations
+      : { possible_aesthetics: [item.aesthetic, item.style].filter(Boolean) },
+  };
+
+  // Resolve formality once (explicit value, legacy 1-5 scale, or inferred from the name).
+  const resolved = getFeatures(normalized);
+  normalized.attributes = {
+    visual_weight_estimate: 0.5,
+    seasonal_suitability:
+      item.season && item.season !== "all" ? [item.season] : [],
+    functional_tags: item.tags || [],
+    ...item.attributes,
+    formality_estimate: resolved.formality,
+  };
+  return normalized;
 }
 
 export function validateGarment(item) {
-  const garment = normalizeLegacyGarment(item)
-  if (!garment) return false
-
-  const family = familyOf(garment)
-  if (!garment.id || !garment.name || !family) return false
-  if (garment.status === 'unavailable') return false
-  return true
+  const garment = normalizeGarment(item);
+  return Boolean(garment) && garment.status !== "unavailable";
 }
 
+const UNIQUE_FAMILIES = ["top", "bottom", "onepiece", "footwear"];
+
 export function validateOutfit(outfit) {
-  if (!Array.isArray(outfit) || outfit.length === 0) return false
-  const ids = new Set()
+  if (!Array.isArray(outfit) || !outfit.length) return false;
 
+  const ids = new Set();
+  const counts = {};
   for (const item of outfit) {
-    const garment = normalizeLegacyGarment(item)
-    if (!garment || ids.has(garment.id)) return false
-    ids.add(garment.id)
+    const family = familyOf(item);
+    if (!item?.id || !family || ids.has(item.id)) return false;
+    ids.add(item.id);
+    counts[family] = (counts[family] || 0) + 1;
   }
-
-  const families = outfit.map((item) => familyOf(item) || item.category || '').filter(Boolean)
-  const hasTop = families.includes('top')
-  const hasBottom = families.includes('bottom')
-  return hasTop && hasBottom
+  if (UNIQUE_FAMILIES.some((family) => counts[family] > 1)) return false;
+  if (counts.onepiece) return !counts.top && !counts.bottom;
+  return Boolean(counts.top && counts.bottom);
 }
 
 export function normalizeGarments(items) {
-  const source = Array.isArray(items) ? items : items?.items || []
+  const source = Array.isArray(items) ? items : items?.items || [];
   return source
-    .map((item) => normalizeLegacyGarment(item))
-    .filter(Boolean)
-    .filter((item) => item.status !== 'unavailable')
+    .map(normalizeGarment)
+    .filter((item) => item && item.status !== "unavailable");
 }

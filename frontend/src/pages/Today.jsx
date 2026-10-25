@@ -17,6 +17,9 @@ export default function Today({
   onFormalityChange,
   onSaveOutfit,
   savedCount,
+  templates = [],
+  currentTemplate = null,
+  onTemplateChange,
 }) {
   const primary = useMemo(() => outfits[0], [outfits])
   const formalityLabel = ['Relaxed', 'Easygoing', 'Balanced', 'Polished', 'Dressy'][Math.max(0, Math.min(4, Number(formalityBias) - 1))]
@@ -92,6 +95,11 @@ export default function Today({
         <span className="tag">{currentContext}</span>
       </PageHeader>
 
+      {templates.length ? <div className="flex flex-wrap gap-2" aria-label="Outfit vibe">
+        <button type="button" aria-pressed={!currentTemplate} onClick={() => onTemplateChange?.(null)} className={`rounded-full border px-3 py-1.5 text-sm ${!currentTemplate ? 'border-violet-600 bg-violet-600 text-white' : 'border-slate-200 bg-white text-slate-700'}`}>All vibes</button>
+        {templates.map((item) => <button key={item.id} type="button" aria-pressed={currentTemplate === item.id} title={item.mood} onClick={() => onTemplateChange?.(item.id)} className={`rounded-full border px-3 py-1.5 text-sm ${currentTemplate === item.id ? 'border-violet-600 bg-violet-600 text-white' : 'border-slate-200 bg-white text-slate-700'}`}>{item.label}</button>)}
+      </div> : null}
+
       {primary ? (
         <div className="space-y-5">
           <OutfitCard
@@ -99,6 +107,7 @@ export default function Today({
             outfit={primary.outfit}
             score={primary.score}
             breakdown={primary.breakdown}
+            templates={primary.templates}
             onSave={() => onSaveOutfit(primary)}
           />
           <OutfitDetails outfit={primary.outfit} score={primary.score} breakdown={primary.breakdown} />
@@ -115,6 +124,7 @@ export default function Today({
               outfit={item.outfit}
               score={item.score}
               breakdown={item.breakdown}
+              templates={item.templates}
               onSave={() => onSaveOutfit(item)}
             />
           ))}
@@ -130,6 +140,7 @@ export default function Today({
               outfit={aestheticOutfits[0].outfit}
               score={aestheticOutfits[0].score}
               breakdown={aestheticOutfits[0].breakdown}
+              templates={aestheticOutfits[0].templates}
               onSave={() => onSaveOutfit(aestheticOutfits[0])}
             />
             <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
@@ -139,6 +150,7 @@ export default function Today({
                   outfit={item.outfit}
                   score={item.score}
                   breakdown={item.breakdown}
+                  templates={item.templates}
                   onSave={() => onSaveOutfit(item)}
                 />
               ))}

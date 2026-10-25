@@ -1,52 +1,55 @@
-import { scoringConfig } from '../data/scoringConfig.js'
-import { colorCompatibility } from './colorCompatibility.js'
+import { scoringConfig } from "../data/scoringConfig.js";
+import { colorCompatibility } from "./colorCompatibility.js";
+import {
+  clamp01,
+  getFeatures,
+  round,
+  symmetricLookup,
+} from "./garmentFeatures.js";
 
-function garmentFormality(item) {
-  const formality = item?.attributes?.formality_estimate ?? item?.formality ?? item?.attributes?.formality
-  if (typeof formality === 'number') return Math.max(0, Math.min(1, formality))
-  if (typeof item?.formality === 'number') return Math.max(0, Math.min(1, item.formality / 5))
-  return 0.5
-}
-
-function patternOf(item) {
-  return item?.visual_attributes?.pattern || item?.pattern || 'solid'
-}
-
-function styleSet(item) {
-  const fromTags = item?.style_associations?.possible_aesthetics || item?.style_associations || []
-  if (Array.isArray(fromTags)) return new Set(fromTags.map(String))
-  if (fromTags && typeof fromTags === 'object') {
-    return new Set(Object.keys(fromTags))
+function styleSimilarity(a, b) {
+  if (!a.length || !b.length) return null; // unknown, not "different"
+  let best = 0;
+  for (const x of a) {
+    for (const y of b) {
+      const score =
+        x === y
+          ? 1
+          : (symmetricLookup(scoringConfig.aestheticAffinity, x, y) ?? 0.25);
+      best = Math.max(best, score);
+    }
   }
-  const styleValue = item?.style || item?.aesthetic || ''
-  return styleValue ? new Set([styleValue]) : new Set()
+  return best;
 }
 
-function jaccard(setA, setB) {
-  const union = new Set([...setA, ...setB])
-  if (!union.size) return 0.5
-  const intersection = [...union].filter((value) => setA.has(value) && setB.has(value)).length
-  return intersection / union.size
+export function pairBreakdown(a, b) {
+  const fa = getFeatures(a);
+  const fb = getFeatures(b);
+  const hasColors = fa.colors.length && fb.colors.length;
+  return {
+    color: hasColors ? colorCompatibility(a, b) : null,
+    pattern:
+      symmetricLookup(
+        scoringConfig.patternCompatibilityTable,
+        fa.pattern,
+        fb.pattern,
+      ) ?? scoringConfig.neutralScore,
+    formality: clamp01(1 - Math.abs(fa.formality - fb.formality)),
+    style: styleSimilarity(fa.aesthetics, fb.aesthetics),
+  };
 }
 
+// Weighted mean of the parts we actually know. Missing data is skipped instead of scoring 0.
 export function pairCompatibility(a, b) {
-  if (!a || !b) return scoringConfig.neutralScore
-
-  const styleScore = jaccard(styleSet(a), styleSet(b))
-  const colorScore = colorCompatibility(a, b)
-  const patternTable = scoringConfig.patternCompatibilityTable || {}
-  const patternA = patternOf(a)
-  const patternB = patternOf(b)
-  const patternScore = patternTable[patternA]?.[patternB] ?? scoringConfig.neutralScore
-  const formalityScore = 1 - Math.abs(garmentFormality(a) - garmentFormality(b))
-
-  const weights = scoringConfig.pairwiseWeights
-  const numerator =
-    colorScore * weights.color +
-    patternScore * weights.pattern +
-    formalityScore * weights.formality +
-    styleScore * weights.style
-
-  const total = Object.values(weights).reduce((sum, value) => sum + value, 0)
-  return Number((numerator / total).toFixed(3))
+  if (!a || !b) return scoringConfig.neutralScore;
+  const parts = pairBreakdown(a, b);
+  let total = 0;
+  let weight = 0;
+  for (const [key, value] of Object.entries(parts)) {
+    if (value === null) continue;
+    const w = scoringConfig.pairwiseWeights[key];
+    total += value * w;
+    weight += w;
+  }
+  return round(weight ? total / weight : scoringConfig.neutralScore);
 }

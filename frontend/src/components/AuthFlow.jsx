@@ -63,7 +63,7 @@ export default function AuthFlow({ accounts = [], canClose = false, onSignUp, on
     }
   }
 
-  const submitLogin = (event) => {
+  const submitLogin = async (event) => {
     event.preventDefault()
     const next = {}
     const identifier = form.username.trim()
@@ -78,8 +78,11 @@ export default function AuthFlow({ accounts = [], canClose = false, onSignUp, on
     setErrors(next)
     if (Object.keys(next).length) return
 
-    if (!onLogin(identifier, form.password)) {
-      setErrors({ username: 'No account matches that username or name.', password: 'Check your password and try again.', missing: true })
+    try {
+      const signedIn = await onLogin(identifier, form.password)
+      if (!signedIn) setErrors({ username: 'No account matches that username or name.', password: 'Check your password and try again.', missing: true })
+    } catch {
+      setErrors({ username: 'Sign in failed. Check your details and connection, then try again.' })
     }
   }
 

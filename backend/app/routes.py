@@ -352,7 +352,7 @@ def recommendations():
     saved=db.session.get(Preferences,1)
     if saved: preferences={**saved.data,**preferences}
     history=[{'items': h.garment_ids, 'timestamp': h.created_at.timestamp()*1000} for h in OutfitHistory.query.order_by(OutfitHistory.created_at.desc()).limit(40).all()]
-    payload={'garments':garments,'context':data.get('context','casual'),'preferences':preferences,'history':history,'profile':profile,'limit':data.get('limit',6)}
+    payload={'garments':garments,'context':data.get('context','casual'),'preferences':preferences,'history':history,'profile':profile,'limit':data.get('limit',6),'template':data.get('template')}
     script=Path(__file__).resolve().parents[1] / 'recommendations.mjs'
     try:
         result=subprocess.run(['node',str(script)],input=json.dumps(payload),text=True,capture_output=True,timeout=10,check=True)
