@@ -1,5 +1,33 @@
+import { useState } from 'react'
 import { createDefaultProfile, normalizeProfile } from '../utils/bodyProfile.js'
 import PageHeader from '../components/PageHeader.jsx'
+
+function HelpPopover({ title, text }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <div className="group relative inline-flex">
+      <button
+        type="button"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold text-slate-600 transition hover:border-violet-400 hover:text-violet-700"
+        aria-label={title}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        onClick={() => setIsOpen((current) => !current)}
+        onBlur={() => setIsOpen(false)}
+        title={title}
+      >
+        ?
+      </button>
+      {isOpen ? (
+        <div role="dialog" aria-label={title} className="absolute left-0 top-7 z-20 w-64 rounded-xl border border-slate-200 bg-white p-2 text-left text-xs leading-snug text-slate-600 shadow-lg">
+          <p className="font-semibold text-slate-800">{title}</p>
+          <p className="mt-1">{text}</p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 const measurementLabels = {
   shoulderWidth: 'Shoulder width',
@@ -95,7 +123,10 @@ export default function MyProfile({ profile, onProfileChange, onClearProfile, on
           <h3 className="text-lg font-semibold">Fit preferences</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="field">
-              Tops fit
+              <span className="flex items-center gap-2">
+                <span>Tops fit</span>
+                <HelpPopover title="Tops fit" text="This is how you usually like your shirts, knitwear, and jackets to sit on the body: fitted, regular, relaxed, or oversized." />
+              </span>
               <select className="input" value={current.fitPreferences?.tops || 'regular'} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, tops: e.target.value })}>
                 <option value="fitted">Fitted</option>
                 <option value="slim">Slim</option>
@@ -105,7 +136,10 @@ export default function MyProfile({ profile, onProfileChange, onClearProfile, on
               </select>
             </label>
             <label className="field">
-              Bottoms fit
+              <span className="flex items-center gap-2">
+                <span>Bottoms fit</span>
+                <HelpPopover title="Bottoms fit" text="Use this to describe how your trousers, jeans, and skirts usually sit around the hips, thighs, and leg shape." />
+              </span>
               <select className="input" value={current.fitPreferences?.bottoms || 'straight'} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, bottoms: e.target.value })}>
                 <option value="slim">Slim</option>
                 <option value="straight">Straight</option>
@@ -115,11 +149,17 @@ export default function MyProfile({ profile, onProfileChange, onClearProfile, on
               </select>
             </label>
             <label className="field">
-              Upper-body volume
+              <span className="flex items-center gap-2">
+                <span>Upper-body volume</span>
+                <HelpPopover title="Upper-body volume" text="Think about how roomy your shoulders, chest, and sleeves feel. 'Balanced' usually means easy and polished; 'relaxed' means more ease and space." />
+              </span>
               <input className="input" value={current.fitPreferences?.upperBodyVolume || ''} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, upperBodyVolume: e.target.value })} />
             </label>
             <label className="field">
-              Lower-body volume
+              <span className="flex items-center gap-2">
+                <span>Lower-body volume</span>
+                <HelpPopover title="Lower-body volume" text="This describes how roomy your hips, thighs, and legs feel. It helps the app compare your preferred silhouette to the garments you own." />
+              </span>
               <input className="input" value={current.fitPreferences?.lowerBodyVolume || ''} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, lowerBodyVolume: e.target.value })} />
             </label>
           </div>

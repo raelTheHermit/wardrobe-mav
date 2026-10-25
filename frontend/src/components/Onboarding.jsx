@@ -50,7 +50,17 @@ export default function Onboarding({ name, initialPreferences, initialAesthetic,
                 {step === 0 ? (
                     <section className="space-y-4">
                         <div>
-                            <h2 className="text-2xl font-bold tracking-tight">{name ? `Nice to meet you, ${name}.` : 'Nice to meet you.'} What’s your style?</h2>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-2xl font-bold tracking-tight">{name ? `Nice to meet you, ${name}.` : 'Nice to meet you.'} What’s your style?</h2>
+                                <button
+                                    type="button"
+                                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold text-slate-600"
+                                    aria-label="Style helps the app suggest outfits that feel like you."
+                                    title="Style helps the app suggest outfits that feel like you."
+                                >
+                                    ?
+                                </button>
+                            </div>
                             <p className="mt-1 text-slate-600">Pick the look you reach for most. Outfits that match it get a boost.</p>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -98,7 +108,17 @@ export default function Onboarding({ name, initialPreferences, initialAesthetic,
                 {step === 2 ? (
                     <section className="space-y-4">
                         <div>
-                            <h2 className="text-2xl font-bold tracking-tight">How dressed up do you like to be?</h2>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-2xl font-bold tracking-tight">How dressed up do you like to be?</h2>
+                                <button
+                                    type="button"
+                                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold text-slate-600"
+                                    aria-label="Formality bias sets your default polish level for outfit suggestions."
+                                    title="Formality bias sets your default polish level for outfit suggestions."
+                                >
+                                    ?
+                                </button>
+                            </div>
                             <p className="mt-1 text-slate-600">This is your everyday default. Context changes it for events.</p>
                         </div>
                         <input type="range" min="1" max="5" value={formality} onChange={(event) => setFormality(Number(event.target.value))} className="w-full accent-violet-600" aria-label="Formality bias" />

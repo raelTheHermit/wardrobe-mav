@@ -3,14 +3,49 @@ import WardrobeGrid from '../components/WardrobeGrid.jsx'
 import PageHeader from '../components/PageHeader.jsx'
 import { wardrobeApi } from '../utils/api.js'
 
+const COLOR_OPTIONS = [
+  { value: 'ivory', label: 'Ivory', hex: '#f4f1e8' },
+  { value: 'white', label: 'White', hex: '#ffffff' },
+  { value: 'black', label: 'Black', hex: '#17161d' },
+  { value: 'grey', label: 'Grey', hex: '#8b8e94' },
+  { value: 'navy', label: 'Navy', hex: '#1f2f4a' },
+  { value: 'blue', label: 'Blue', hex: '#4a7fc1' },
+  { value: 'beige', label: 'Beige', hex: '#cdb99a' },
+  { value: 'brown', label: 'Brown', hex: '#6b4a32' },
+  { value: 'olive', label: 'Olive', hex: '#6b7340' },
+  { value: 'green', label: 'Green', hex: '#2f6b4f' },
+  { value: 'burgundy', label: 'Burgundy', hex: '#7a2236' },
+  { value: 'yellow', label: 'Yellow', hex: '#e8c547' },
+  { value: 'red', label: 'Red', hex: '#c93b3b' },
+  { value: 'pink', label: 'Pink', hex: '#d99ab2' },
+  { value: 'purple', label: 'Purple', hex: '#7c5ac5' },
+]
+
+const SIZE_OPTIONS = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'Custom']
+const STYLE_OPTIONS = ['minimal', 'classic', 'street', 'boho', 'romantic', 'creative', 'edgy', 'preppy', 'athleisure', 'modern']
+const TYPE_OPTIONS = {
+  top: ['tee', 'shirt', 'knit', 'sweater', 'blouse', 'polo', 'tank', 'dress'],
+  bottom: ['jeans', 'trouser', 'skirt', 'short', 'legging', 'chino'],
+  outerwear: ['blazer', 'jacket', 'coat', 'cardigan', 'vest', 'parka'],
+  accessory: ['bag', 'belt', 'scarf', 'hat', 'jewellery', 'sunglasses'],
+  shoe: ['sneaker', 'loafer', 'heel', 'boot', 'sandals'],
+}
+const SUBTYPE_OPTIONS = {
+  top: ['basic', 'button-up', 'oversized', 'fitted', 'linen', 'striped', 'graphic', 'cotton'],
+  bottom: ['straight', 'wide-leg', 'slim', 'cargo', 'flare', 'linen', 'denim'],
+  outerwear: ['structured', 'relaxed', 'cropped', 'oversized', 'tailored', 'layering'],
+  accessory: ['leather', 'canvas', 'wool', 'metal', 'structured', 'minimal'],
+  shoe: ['low-profile', 'chunky', 'sleek', 'ankle-height', 'workwear', 'dress'],
+}
+
 const blankDraft = {
   id: '',
   name: '',
   category: 'top',
   type: 'tee',
-  subtype: '',
+  subtype: 'basic',
   brand: '',
-  size: '',
+  size: 'M',
   sizeSystem: 'us',
   status: 'available',
   color: 'ivory',
@@ -134,6 +169,10 @@ export default function Wardrobe({ garments, onSelectGarment, onAddGarment, onUp
     onChange: (e) => handleDraftChange('attributes', { ...draft.attributes, [field]: Number(e.target.value) || 0.5 }),
   })
 
+  const activeColor = COLOR_OPTIONS.find((option) => option.value === draft.color) || COLOR_OPTIONS[0]
+  const typeChoices = TYPE_OPTIONS[draft.category] || TYPE_OPTIONS.top
+  const subtypeChoices = SUBTYPE_OPTIONS[draft.category] || SUBTYPE_OPTIONS.top
+
   return (
     <section className="space-y-6">
       <PageHeader eyebrow="Closet" title="Wardrobe overview">
@@ -185,9 +224,25 @@ export default function Wardrobe({ garments, onSelectGarment, onAddGarment, onUp
                   className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-accent-soft file:px-3 file:py-2 file:text-sm file:font-semibold file:text-accent hover:file:bg-violet-200"
                 />
               </Field>
+
+              <div className="sm:col-span-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <span className="h-7 w-7 shrink-0 rounded-full border border-slate-200" style={{ background: activeColor.hex }} />
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Quick summary</p>
+                  <p className="text-sm font-semibold text-slate-800">{draft.name || 'Untitled garment'} · {activeColor.label}</p>
+                </div>
+              </div>
+
               <Field label="Garment name" className="sm:col-span-2"><input {...text('name')} /></Field>
               <Field label="Category">
-                <select className="input" value={draft.category} onChange={(e) => handleDraftChange('category', e.target.value)}>
+                <select className="input" value={draft.category} onChange={(e) => {
+                  const nextCategory = e.target.value
+                  const nextType = TYPE_OPTIONS[nextCategory]?.[0] || 'tee'
+                  const nextSubtype = SUBTYPE_OPTIONS[nextCategory]?.[0] || 'basic'
+                  handleDraftChange('category', nextCategory)
+                  handleDraftChange('type', nextType)
+                  handleDraftChange('subtype', nextSubtype)
+                }}>
                   <option value="top">Top</option>
                   <option value="bottom">Bottom</option>
                   <option value="outerwear">Outerwear</option>
@@ -195,10 +250,22 @@ export default function Wardrobe({ garments, onSelectGarment, onAddGarment, onUp
                   <option value="shoe">Shoe</option>
                 </select>
               </Field>
-              <Field label="Type"><input {...text('type')} /></Field>
-              <Field label="Subtype"><input {...text('subtype')} /></Field>
+              <Field label="Type">
+                <select className="input" value={draft.type} onChange={(e) => handleDraftChange('type', e.target.value)}>
+                  {typeChoices.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </Field>
+              <Field label="Subtype">
+                <select className="input" value={draft.subtype} onChange={(e) => handleDraftChange('subtype', e.target.value)}>
+                  {subtypeChoices.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </Field>
               <Field label="Brand"><input {...text('brand')} /></Field>
-              <Field label="Size"><input {...text('size')} /></Field>
+              <Field label="Size">
+                <select className="input" value={draft.size || 'M'} onChange={(e) => handleDraftChange('size', e.target.value)}>
+                  {SIZE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </Field>
               <Field label="Size system">
                 <select className="input" value={draft.sizeSystem} onChange={(e) => handleDraftChange('sizeSystem', e.target.value)}>
                   <option value="us">US</option>
@@ -214,7 +281,20 @@ export default function Wardrobe({ garments, onSelectGarment, onAddGarment, onUp
                   <option value="unavailable">Unavailable</option>
                 </select>
               </Field>
-              <Field label="Primary color"><input {...text('color')} /></Field>
+              <Field label="Primary color">
+                <select className="input" value={draft.color} onChange={(e) => {
+                  const nextColor = e.target.value
+                  handleDraftChange('color', nextColor)
+                  handleDraftChange('visual_attributes', {
+                    ...draft.visual_attributes,
+                    primary_colors: [nextColor],
+                  })
+                }}>
+                  {COLOR_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </Field>
               <Field label="Fit">
                 <select className="input" value={draft.fit} onChange={(e) => handleDraftChange('fit', e.target.value)}>
                   <option value="fitted">Fitted</option>
@@ -223,7 +303,11 @@ export default function Wardrobe({ garments, onSelectGarment, onAddGarment, onUp
                   <option value="oversized">Oversized</option>
                 </select>
               </Field>
-              <Field label="Style"><input {...text('style')} /></Field>
+              <Field label="Style">
+                <select className="input" value={draft.style} onChange={(e) => handleDraftChange('style', e.target.value)}>
+                  {STYLE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </Field>
               <Field label="Aesthetic"><input {...text('aesthetic')} /></Field>
               {mode === 'detailed' ? (
                 <>
