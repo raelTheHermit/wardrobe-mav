@@ -173,7 +173,7 @@ export default function AuthFlow({ accounts = [], canClose = false, onSignUp, on
               </div>
 
               <div>
-                <button type="button" className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-violet-700 hover:bg-violet-50" onClick={onGuest}>Try it as a guest</button>
+                <button type="button" className="min-h-11 w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-accent hover:bg-accent-soft" onClick={onGuest}>Try it as a guest</button>
                 <p className="mt-1 text-center text-xs text-slate-500">Guest data stays in this browser only.</p>
               </div>
             </>
@@ -224,7 +224,7 @@ export default function AuthFlow({ accounts = [], canClose = false, onSignUp, on
 
               <p className="text-center text-sm text-slate-600">
                 Already have an account?{' '}
-                <button type="button" className="font-semibold text-violet-700 hover:underline" onClick={() => go('login')}>Log in</button>
+                <button type="button" className="font-semibold text-accent hover:underline" onClick={() => go('login')}>Log in</button>
               </p>
 
               <button type="button" className="block w-full text-center text-sm text-slate-500 hover:text-slate-800" onClick={() => go('welcome')}>← Back</button>
@@ -245,9 +245,9 @@ export default function AuthFlow({ accounts = [], canClose = false, onSignUp, on
                       <button
                         type="button"
                         onClick={() => onLogin(account.username || account.name || account.email, account.password || '')}
-                        className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-violet-300"
+                        className="flex min-h-[60px] w-full items-center gap-3 rounded-xl border border-[#e8e2dc] bg-white p-3 text-left transition hover:border-accent/40 hover:bg-[#fbfaf8]"
                       >
-                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-100 font-bold text-violet-700">{String(account.name || account.username || 'U').slice(0, 1).toUpperCase()}</span>
+                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft font-bold text-accent">{String(account.name || account.username || 'U').slice(0, 1).toUpperCase()}</span>
                         <span className="min-w-0">
                           <span className="block font-semibold text-slate-900">{account.name || account.username}</span>
                           <span className="block truncate text-xs text-slate-500">{account.username || account.name}</span>
@@ -284,11 +284,11 @@ export default function AuthFlow({ accounts = [], canClose = false, onSignUp, on
               {errors.missing ? (
                 <p className="text-sm text-slate-600">
                   New here?{' '}
-                  <button type="button" className="font-semibold text-violet-700 hover:underline" onClick={() => go('signup')}>Create an account</button>
+                  <button type="button" className="font-semibold text-accent hover:underline" onClick={() => go('signup')}>Create an account</button>
                 </p>
               ) : null}
 
-              <button type="button" className="text-sm font-medium text-violet-700 hover:underline" onClick={() => {
+              <button type="button" className="min-h-10 text-sm font-medium text-accent hover:underline" onClick={() => {
                 setErrors({})
                 setResetNotice('')
                 setView('forgot')

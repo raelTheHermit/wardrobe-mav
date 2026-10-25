@@ -11,7 +11,8 @@ export default function PreferenceSettings({ preferences, onChange }) {
           <input
             className="input"
             type="text"
-            value={preferences.styles?.join(', ') || 'minimal'}
+            value={preferences.styles?.join(', ') ?? ''}
+          placeholder="e.g. classic, minimal"
             onChange={(event) => update('styles', toList(event.target.value))}
           />
           <span className="text-xs font-normal text-slate-500">Separate with commas</span>
@@ -21,7 +22,8 @@ export default function PreferenceSettings({ preferences, onChange }) {
           <input
             className="input"
             type="text"
-            value={preferences.colors?.join(', ') || 'ivory, navy'}
+            value={preferences.colors?.join(', ') ?? ''}
+          placeholder="e.g. ivory, navy"
             onChange={(event) => update('colors', toList(event.target.value))}
           />
           <span className="text-xs font-normal text-slate-500">Separate with commas</span>

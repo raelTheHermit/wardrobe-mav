@@ -121,7 +121,7 @@ export default function Onboarding({ name, initialPreferences, initialAesthetic,
                             </div>
                             <p className="mt-1 text-slate-600">This is your everyday default. Context changes it for events.</p>
                         </div>
-                        <input type="range" min="1" max="5" value={formality} onChange={(event) => setFormality(Number(event.target.value))} className="w-full accent-violet-600" aria-label="Formality bias" />
+                        <input type="range" min="1" max="5" value={formality} onChange={(event) => setFormality(Number(event.target.value))} className="w-full accent-accent" aria-label="Formality bias" />
                         <div className="flex justify-between text-xs text-slate-500"><span>Relaxed</span><span>Dressy</span></div>
                         <p className="text-center text-lg font-semibold">{formalityLabels[formality - 1]}</p>
                     </section>

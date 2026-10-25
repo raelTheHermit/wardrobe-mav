@@ -16,7 +16,6 @@ import { loadUserSession, syncUserData } from './utils/syncData.js'
 import { outfitTemplates } from './data/outfitTemplates.js'
 import { syncQueuedOperations } from './utils/offlineSync.js'
 
-const demoAccount = { id: 'demo-guest', name: 'Rael', email: 'guest@fitzii.local', guest: true }
 const demoPreferences = {
   styles: ['minimal', 'classic'],
   colors: ['ivory', 'navy', 'olive'],
@@ -385,11 +384,6 @@ function App() {
     setStage('auth')
   }
 
-  const handleOpenApp = () => {
-    saveToStorage(storageKeys.introSeen, true)
-    setPage('today')
-  }
-
   const handleAddGarment = async (garment) => {
     const normalized = { status: 'available', ...garment }
     const saved = { ...normalized, id: normalized.id || `g-${Date.now()}` }
@@ -518,11 +512,11 @@ function App() {
           <h1 className="text-2xl font-bold leading-tight tracking-tight">Dress with more ease</h1>
         </div>
 
-        <div className="rounded-xl bg-accent-soft p-4">
+        <button type="button" onClick={() => setPage('profile')} className="rounded-xl bg-accent-soft p-4 text-left transition hover:bg-[#eadbe0] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" aria-label="Open profile settings">
           <span className="text-xs font-medium text-accent">Account</span>
           <strong className="block text-base">{account?.name || 'Guest'}</strong>
-          <small className="text-slate-600">{account?.email || 'Local profile'}</small>
-        </div>
+          <small className="text-slate-600">Profile settings&nbsp; ↗</small>
+        </button>
 
         <nav className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible" aria-label="Main">
           {navItems.map(([key, label]) => (
@@ -540,7 +534,7 @@ function App() {
         </nav>
 
         <div className="flex flex-col gap-2">
-          <button type="button" className="rounded-lg bg-accent-soft px-4 py-2.5 text-sm font-semibold text-accent transition hover:bg-violet-200" onClick={account ? handleSignOut : () => setStage('auth')}>
+          <button type="button" className="min-h-11 rounded-xl bg-accent-soft px-4 py-2.5 text-sm font-semibold text-accent transition hover:bg-[#eadbe0]" onClick={account ? handleSignOut : () => setStage('auth')}>
             {account ? 'Log out' : 'Create account'}
           </button>
         </div>
@@ -569,7 +563,7 @@ function App() {
         </button>
         <div className="flex items-center gap-2">
           {isOffline ? <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-900">Offline</span> : null}
-          <button type="button" onClick={account ? handleSignOut : () => setStage('auth')} className="grid h-10 w-10 place-items-center rounded-full border border-[#e8e2dc] bg-white text-sm font-bold text-accent" aria-label={account ? 'Log out' : 'Create account'}>
+          <button type="button" onClick={() => setPage('profile')} className="grid h-10 w-10 place-items-center rounded-full border border-[#e8e2dc] bg-white text-sm font-bold text-accent shadow-sm transition hover:border-accent/40 hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" aria-label="Open profile settings" title="Profile settings">
             {(account?.name || 'G').trim().charAt(0).toUpperCase()}
           </button>
         </div>
@@ -577,9 +571,9 @@ function App() {
 
       <main className="page-bottom-safe mx-auto w-full max-w-6xl space-y-5 px-4 pt-4 sm:px-8 sm:pt-8 lg:space-y-6 lg:px-8 lg:pb-8">
         {!account ? (
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e5d3da] bg-[#f7f0f2] px-4 py-3 text-sm text-ink">
             <span>Guest mode is active. Your data stays in this browser.</span>
-            <button type="button" className="rounded-full bg-violet-600 px-3 py-1.5 font-semibold text-white" onClick={() => setStage('auth')}>Create account</button>
+            <button type="button" className="min-h-10 rounded-full bg-accent px-4 py-2 font-semibold text-white" onClick={() => setStage('auth')}>Create account</button>
           </div>
         ) : null}
         {showTutorial ? (
@@ -587,8 +581,8 @@ function App() {
             <p className="text-sm font-semibold text-slate-900">Quick start</p>
             <div className="mt-3 grid gap-3 md:grid-cols-3">
               {['Pick your context', 'Tune your aesthetic', 'Save your favorite outfits'].map((item, index) => (
-                <div key={item} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-700">{index + 1}</span>
+                <div key={item} className="rounded-xl border border-[#e8e2dc] bg-[#fbfaf8] px-3 py-2 text-sm text-slate-700">
+                  <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent-soft text-xs font-bold text-accent">{index + 1}</span>
                   {item}
                 </div>
               ))}
@@ -655,6 +649,7 @@ function App() {
               saveToStorage(storageKeys.profile, profile)
               setApiError('')
             }}
+            onSignOut={handleSignOut}
             onClearProfile={() => {
               const confirmClear = window.confirm('Clear the entire profile?')
               if (confirmClear) {

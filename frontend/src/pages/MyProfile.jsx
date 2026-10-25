@@ -9,7 +9,7 @@ function HelpPopover({ title, text }) {
     <div className="group relative inline-flex">
       <button
         type="button"
-        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold text-slate-600 transition hover:border-violet-400 hover:text-violet-700"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-bold text-slate-600 transition hover:border-accent/50 hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         aria-label={title}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
@@ -55,18 +55,24 @@ const measurementGuides = {
   neckCircumference: { label: 'Neck circumference', image: '/images/measurement-guides/shoulder.svg', tip: 'Wrap the tape around the base of the neck, keeping it comfortable and level.' },
 }
 
-export default function MyProfile({ profile, onProfileChange, onClearProfile, onSaveProfile }) {
+export default function MyProfile({ profile, onProfileChange, onClearProfile, onSaveProfile, onSignOut }) {
+  const [savedNotice, setSavedNotice] = useState(false)
   const current = normalizeProfile(profile || createDefaultProfile())
   const measurements = Array.isArray(current.measurements) ? current.measurements : []
-  const updateField = (field, value) => onProfileChange(normalizeProfile({ ...current, [field]: value }))
+  const updateField = (field, value) => {
+    setSavedNotice(false)
+    onProfileChange(normalizeProfile({ ...current, [field]: value }))
+  }
 
   const updateMeasurement = (index, field, value) => {
+    setSavedNotice(false)
     const next = [...measurements]
     next[index] = { ...next[index], [field]: value }
     onProfileChange(normalizeProfile({ ...current, measurements: next }))
   }
 
   const addMeasurement = () => {
+    setSavedNotice(false)
     onProfileChange(normalizeProfile({
       ...current,
       measurements: [...measurements, { name: 'chestCircumference', value: '', unit: 'cm', notes: '', confidence: 'estimated' }],
@@ -74,6 +80,7 @@ export default function MyProfile({ profile, onProfileChange, onClearProfile, on
   }
 
   const removeMeasurement = (index) => {
+    setSavedNotice(false)
     onProfileChange(normalizeProfile({ ...current, measurements: measurements.filter((_, i) => i !== index) }))
   }
 
@@ -82,9 +89,11 @@ export default function MyProfile({ profile, onProfileChange, onClearProfile, on
   return (
     <section className="space-y-6">
       <PageHeader eyebrow="My profile" title="Body profile">
-        <button type="button" className="btn-secondary" onClick={onClearProfile}>Clear profile</button>
-        <button type="button" className="btn-primary" onClick={onSaveProfile}>Save profile</button>
+        <button type="button" className="btn-secondary flex-1 sm:flex-none" onClick={onSignOut}>Sign out</button>
+        <button type="button" className="btn-secondary flex-1 sm:flex-none" onClick={onClearProfile}>Clear profile</button>
+        <button type="button" className="btn-primary w-full sm:w-auto" onClick={() => { onSaveProfile?.(); setSavedNotice(true) }}>Save profile</button>
       </PageHeader>
+      {savedNotice ? <p role="status" className="-mt-3 text-sm font-medium text-emerald-800">Your profile is saved on this device and queued to sync.</p> : null}
 
       <div className="grid items-start gap-5 lg:grid-cols-2">
         <div className="settings-card space-y-4">

@@ -1,587 +1,1974 @@
-//candidateGenerator.js
-import { outfitTemplates } from '../data/outfitTemplates.js'
-import { normalizeGarments, validateGarment } from './validation.js'
+import { useEffect, useState } from 'react'
+import AuthFlow from './components/AuthFlow.jsx'
+import Onboarding from './components/Onboarding.jsx'
+import Today from './pages/Today.jsx'
+import Wardrobe from './pages/Wardrobe.jsx'
+import Explore from './pages/Explore.jsx'
+import Preferences from './pages/Preferences.jsx'
+import MyProfile from './pages/MyProfile.jsx'
+import { loadFromStorage, saveToStorage, storageKeys } from './utils/storage.js'
+import { createDefaultProfile, normalizeProfile } from './utils/bodyProfile.js'
+import { generateOutfits } from './engine/index.js'
+import guestWardrobeSeed from './data/guestWardrobe.json'
+import { exportWardrobePayload, importWardrobeRecords } from './utils/wardrobeStorage.js'
+import { apiRequest, authApi, setUnauthorizedHandler } from './utils/api.js'
+import { loadUserSession, syncUserData } from './utils/syncData.js'
+import { outfitTemplates } from './data/outfitTemplates.js'
+import { syncQueuedOperations } from './utils/offlineSync.js'
 
-function dedupeOutfits(outfits) {
-  const seen = new Set()
-  return outfits.filter((outfit) => {
-    const key = [...outfit].map((item) => item.id).sort().join('|')
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+const demoAccount = { id: 'demo-guest', name: 'Rael', email: 'guest@fitzii.local', guest: true }
+const demoPreferences = {
+  styles: ['minimal', 'classic'],
+  colors: ['ivory', 'navy', 'olive'],
+  materials: ['cotton', 'linen', 'denim'],
+  formalityBias: 3,
 }
 
-export function generateCandidates(garments, maxPerCategory = 4) {
-  const normalized = normalizeGarments(garments).filter(validateGarment)
-  const byCategory = {
-    top: [],
-    bottom: [],
-    footwear: [],
-    shoe: [],
-    outerwear: [],
-    accessory: [],
+const defaultPreferences = demoPreferences
+
+const navItems = [
+  ['today', 'Today'],
+  ['wardrobe', 'Wardrobe'],
+  ['explore', 'Explore'],
+  ['profile', 'My Profile'],
+  ['preferences', 'Preferences'],
+]
+
+const navIcons = {
+  today: 'M3 10.5 12 3l9 7.5M5.5 9v11h13V9M9 20v-6h6v6',
+  wardrobe: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+  explore: 'm12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3ZM19 15l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1 1-2.5Z',
+  profile: 'M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z',
+  preferences: 'M4 6h16M4 12h16M4 18h16M9 4v4m7 2v4m-5 2v4',
+}
+
+function NavIcon({ name }) {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">{name === 'explore' ? <path d={navIcons[name]} fill="currentColor" stroke="none" /> : <path d={navIcons[name]} />}</svg>
+}
+
+function App() {
+  const [garments, setGarments] = useState([])
+  const [page, setPage] = useState('today')
+  const [context, setContext] = useState('casual')
+  const [aesthetic, setAesthetic] = useState('minimal')
+  const [preferences, setPreferences] = useState(defaultPreferences)
+  const [savedOutfits, setSavedOutfits] = useState([])
+  const [history, setHistory] = useState([])
+  const [selectedGarment, setSelectedGarment] = useState(null)
+  const [profile, setProfile] = useState(createDefaultProfile())
+  const [account, setAccount] = useState(() => loadFromStorage(storageKeys.account, null))
+  const [stage, setStage] = useState(() => {
+    const activeAccount = loadFromStorage(storageKeys.account, null)
+    const guestMode = loadFromStorage('fitzii.guest', false)
+    return activeAccount || guestMode ? 'app' : 'auth'
+  })
+  const [showTutorial, setShowTutorial] = useState(false)
+  const [apiError, setApiError] = useState('')
+  const [isOffline, setIsOffline] = useState(typeof navigator === 'undefined' ? false : !navigator.onLine)
+  const [isLoading, setIsLoading] = useState(true)
+  const [recommendedOutfits, setRecommendedOutfits] = useState([])
+  const [aestheticOutfits, setAestheticOutfits] = useState([])
+  const [template, setTemplate] = useState(null)
+
+  const hydrateAuthenticatedSession = async (activeAccount) => {
+    if (!activeAccount) return
+
+    setAccount(activeAccount)
+    saveToStorage(storageKeys.account, activeAccount)
+
+    try {
+      const syncResult = await loadUserSession(activeAccount)
+      const wardrobe = Array.isArray(syncResult?.wardrobe) ? syncResult.wardrobe : loadFromStorage(storageKeys.wardrobe, guestWardrobeSeed)
+      const profile = normalizeProfile(syncResult?.profile && Object.keys(syncResult.profile).length ? syncResult.profile : loadFromStorage(storageKeys.profile, createDefaultProfile()))
+      const preferences = syncResult?.preferences && Object.keys(syncResult.preferences).length ? syncResult.preferences : loadFromStorage(storageKeys.preferences, defaultPreferences)
+
+      setGarments(wardrobe)
+      setProfile(profile)
+      setPreferences(preferences)
+      saveToStorage(storageKeys.wardrobe, wardrobe)
+      saveToStorage(storageKeys.profile, profile)
+      saveToStorage(storageKeys.preferences, preferences)
+    } catch (error) {
+      console.warn('Could not hydrate backend session data, keeping local data as fallback.', error)
+      const localWardrobe = loadFromStorage(storageKeys.wardrobe, guestWardrobeSeed)
+      const localProfile = loadFromStorage(storageKeys.profile, createDefaultProfile())
+      const localPreferences = loadFromStorage(storageKeys.preferences, defaultPreferences)
+      setGarments(localWardrobe)
+      setProfile(localProfile)
+      setPreferences(localPreferences)
+      saveToStorage(storageKeys.wardrobe, localWardrobe)
+      saveToStorage(storageKeys.profile, localProfile)
+      saveToStorage(storageKeys.preferences, localPreferences)
+    }
   }
 
-  normalized.forEach((garment) => {
-    const family = garment.category?.family || garment.category
-    const alias = family === 'shoe' || family === 'shoes' ? 'shoe' : family
-    if (byCategory[alias]) byCategory[alias].push(garment)
-    if (alias === 'shoe') byCategory.footwear.push(garment)
-  })
-
-  const outfits = []
-
-  outfitTemplates.forEach((template) => {
-    const topOptions = (byCategory.top || []).slice(0, maxPerCategory)
-    const bottomOptions = (byCategory.bottom || []).slice(0, maxPerCategory)
-    const footwearOptions = [...(byCategory.footwear || []), ...(byCategory.shoe || [])].slice(0, maxPerCategory)
-    const outerwearOptions = (byCategory.outerwear || []).slice(0, Math.max(1, maxPerCategory / 2))
-    const accessoryOptions = (byCategory.accessory || []).slice(0, Math.max(1, maxPerCategory / 2))
-
-    topOptions.forEach((top) => {
-      bottomOptions.forEach((bottom) => {
-        const basePair = [top, bottom]
-        const candidates = footwearOptions.length ? footwearOptions.map((footwear) => [...basePair, footwear]) : [basePair]
-
-        candidates.forEach((candidateBase) => {
-          const optional = []
-          if (template.optional?.includes('outerwear') && outerwearOptions.length) {
-            optional.push(outerwearOptions[0])
-          }
-          if (template.optional?.includes('accessory') && accessoryOptions.length) {
-            optional.push(accessoryOptions[0])
-          }
-
-          const candidate = [...candidateBase, ...optional]
-          if (candidate.length >= 2 && candidate.every((item) => item)) {
-            outfits.push(candidate)
-          }
-        })
-      })
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setAccount(null)
+      saveToStorage(storageKeys.account, null)
+      setStage('auth')
     })
-  })
+  }, [])
 
-  return dedupeOutfits(outfits)
-}
+  useEffect(() => {
+    const storedSaved = loadFromStorage(storageKeys.outfits, [])
+    const existingHistory = loadFromStorage(storageKeys.history, [])
+    const activeAccount = loadFromStorage(storageKeys.account, null)
+    const localWardrobe = loadFromStorage(storageKeys.wardrobe, guestWardrobeSeed)
+    const localProfile = loadFromStorage(storageKeys.profile, createDefaultProfile())
+    const localPreferences = loadFromStorage(storageKeys.preferences, defaultPreferences)
 
-//colorCompatibility.js
-import { scoringConfig } from '../data/scoringConfig.js'
+    setAccount(activeAccount)
+    setSavedOutfits(storedSaved)
+    setGarments(localWardrobe)
+    setProfile(localProfile)
+    setPreferences(localPreferences)
+    setHistory(existingHistory)
+    setApiError('')
 
-function normalizeColorName(value) {
-  if (!value) return ''
-  return String(value).trim().toLowerCase()
-}
+    const bootstrap = async () => {
+      try {
+        const currentUser = activeAccount ? activeAccount : await authApi.me()
+        if (!currentUser) {
+          setStage('auth')
+          setIsLoading(false)
+          return
+        }
 
-function colorList(item) {
-  const attrs = item?.visual_attributes || {}
-  const values = [...(attrs.primary_colors || []), ...(attrs.secondary_colors || [])]
-  if (values.length) return values.map(normalizeColorName).filter(Boolean)
+        const nextAccount = {
+          id: currentUser.id,
+          name: currentUser.displayName || currentUser.name || currentUser.username,
+          username: currentUser.username,
+          password: activeAccount?.password || '',
+        }
 
-  const legacy = item?.color || item?.baseColor || item?.primary_color
-  return legacy ? [normalizeColorName(legacy)] : []
-}
+        saveToStorage(storageKeys.account, nextAccount)
+        setAccount(nextAccount)
+        setStage('app')
+        const remoteData = await syncUserData(nextAccount, {
+          wardrobe: localWardrobe,
+          profile: localProfile,
+          preferences: localPreferences,
+          history: existingHistory,
+        })
 
-export function colorCompatibility(a, b) {
-  if (!a || !b) return scoringConfig.neutralScore
+        const wardrobe = Array.isArray(remoteData?.wardrobe) ? remoteData.wardrobe : localWardrobe
+        const profile = normalizeProfile(remoteData?.profile && Object.keys(remoteData.profile).length ? remoteData.profile : localProfile)
+        const preferences = remoteData?.preferences && Object.keys(remoteData.preferences).length ? remoteData.preferences : localPreferences
 
-  const aColors = colorList(a)
-  const bColors = colorList(b)
-  const table = scoringConfig.colorCompatibilityTable || {}
+        setGarments(wardrobe)
+        setProfile(profile)
+        setPreferences(preferences)
+        setHistory(Array.isArray(remoteData?.history) ? remoteData.history : existingHistory)
+        saveToStorage(storageKeys.wardrobe, wardrobe)
+        saveToStorage(storageKeys.profile, profile)
+        saveToStorage(storageKeys.preferences, preferences)
+        saveToStorage(storageKeys.history, Array.isArray(remoteData?.history) ? remoteData.history : existingHistory)
+      } catch (error) {
+        console.warn('App bootstrap could not reach the backend; using local data instead.', error)
+        setStage(activeAccount ? 'app' : 'auth')
+      } finally {
+        setIsLoading(false)
+      }
+    }
 
-  if (!aColors.length || !bColors.length) return scoringConfig.neutralScore
+    bootstrap()
+  }, [])
 
-  const scores = []
-  for (const left of aColors) {
-    for (const right of bColors) {
-      const row = table[left] || {}
-      const value = row[right] ?? scoringConfig.neutralScore
-      scores.push(value)
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOffline(false)
+    }
+    const handleOffline = () => setIsOffline(true)
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    setIsOffline(!navigator.onLine)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  useEffect(() => {
+    saveToStorage(storageKeys.outfits, savedOutfits)
+  }, [savedOutfits])
+
+  useEffect(() => {
+    if (!garments.length) return
+    const base = { garments, context, history, profile, limit: 6, template }
+    const general = generateOutfits({ ...base, preferences: { ...preferences, aesthetic } })
+    const favorite = generateOutfits({ ...base, preferences: { ...preferences, aesthetic, styles: [aesthetic] } })
+    setRecommendedOutfits(general)
+    setAestheticOutfits(favorite)
+  }, [aesthetic, context, garments, preferences, profile, history, template])
+
+  useEffect(() => {
+    if (!isOffline && account) syncQueuedOperations(apiRequest).catch(() => { })
+  }, [isOffline, account])
+
+  const persistPreferences = (next) => {
+    setPreferences(next)
+    saveToStorage(storageKeys.preferences, next)
+    apiRequest('/preferences', { method: 'PUT', body: JSON.stringify(next) }).catch(() => { })
+    setApiError('')
+  }
+
+  const handleSaveOutfit = (entry) => {
+    const newSaved = [
+      {
+        id: `saved-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+        outfit: entry.outfit,
+        score: entry.score,
+      },
+      ...savedOutfits,
+    ].slice(0, 8)
+
+    setSavedOutfits(newSaved)
+    const timestamp = Date.now()
+    setHistory((current) => [{ items: entry.outfit, timestamp }, ...current].slice(0, 12))
+    saveToStorage(storageKeys.history, [{ items: entry.outfit, timestamp }, ...history].slice(0, 12))
+    apiRequest('/history', { method: 'POST', body: JSON.stringify({ id: `saved-${timestamp}`, garmentIds: entry.outfit.map((item) => item.id), context, score: entry.score }) }).catch(() => { })
+  }
+
+  const handleSignUp = async ({ name, username, password }) => {
+    const cleanedUsername = String(username || name || '').trim()
+    const displayName = String(name || '').trim() || cleanedUsername
+
+    try {
+      const remoteUser = await authApi.register({
+        username: cleanedUsername,
+        password,
+        name: displayName,
+      })
+
+      const remoteAccount = {
+        id: remoteUser.id,
+        name: remoteUser.displayName || displayName,
+        username: remoteUser.username || cleanedUsername,
+        password,
+      }
+
+      const saved = loadFromStorage(storageKeys.accounts, [])
+      const nextAccounts = [...(Array.isArray(saved) ? saved : []), remoteAccount]
+      saveToStorage(storageKeys.accounts, nextAccounts)
+      saveToStorage(storageKeys.account, remoteAccount)
+      setAccount(remoteAccount)
+      await hydrateAuthenticatedSession(remoteAccount)
+      setStage('onboarding')
+      return true
+    } catch (error) {
+      console.warn('Backend account creation failed, falling back to local storage.', error)
+      if (Number(error?.status) > 0) throw error
+    }
+
+    const localAccount = {
+      id: crypto.randomUUID?.() || `account-${Date.now()}`,
+      name: displayName,
+      username: cleanedUsername,
+      password,
+    }
+    const saved = loadFromStorage(storageKeys.accounts, [])
+    const nextAccounts = [...(Array.isArray(saved) ? saved : []), localAccount]
+    saveToStorage(storageKeys.accounts, nextAccounts)
+    saveToStorage(storageKeys.account, localAccount)
+    setAccount(localAccount)
+    setStage('onboarding')
+    return true
+  }
+
+  const handleLogin = async (identifier, password) => {
+    const trimmedIdentifier = String(identifier || '').trim()
+    const normalizedPassword = String(password || '')
+
+    try {
+      const remoteUser = await authApi.login({
+        username: trimmedIdentifier,
+        password: normalizedPassword,
+      })
+
+      const nextAccount = {
+        id: remoteUser.id,
+        name: remoteUser.displayName || remoteUser.name || trimmedIdentifier,
+        username: remoteUser.username || trimmedIdentifier,
+        password: normalizedPassword,
+      }
+
+      saveToStorage(storageKeys.account, nextAccount)
+      setAccount(nextAccount)
+      await hydrateAuthenticatedSession(nextAccount)
+      setStage('app')
+      setPage('today')
+      return true
+    } catch (error) {
+      console.warn('Backend login failed, falling back to local storage only if a matching offline record exists.', error)
+    }
+
+    const saved = loadFromStorage(storageKeys.accounts, [])
+    const found = (Array.isArray(saved) ? saved : []).find((account) => {
+      const accountUsername = String(account.username || account.name || account.email || '').trim().toLowerCase()
+      const accountName = String(account.name || '').trim().toLowerCase()
+      const accountEmail = String(account.email || '').trim().toLowerCase()
+      const storedPassword = String(account.password || '')
+
+      const matchesIdentifier = accountUsername === trimmedIdentifier.toLowerCase() || accountName === trimmedIdentifier.toLowerCase() || accountEmail === trimmedIdentifier.toLowerCase()
+      const matchesPassword = !storedPassword || storedPassword === normalizedPassword
+
+      return matchesIdentifier && matchesPassword
+    })
+
+    if (!found) return false
+
+    const nextAccount = { ...found, password: found.password || normalizedPassword }
+    saveToStorage(storageKeys.account, nextAccount)
+    setAccount(nextAccount)
+    setStage('app')
+    setPage('today')
+    return true
+  }
+
+  const handleResetPassword = ({ username, password }) => {
+    const saved = loadFromStorage(storageKeys.accounts, [])
+    const normalizedUsername = String(username || '').trim().toLowerCase()
+    const nextAccounts = (Array.isArray(saved) ? saved : []).map((account) => {
+      const accountUsername = String(account.username || account.name || account.email || '').trim().toLowerCase()
+      if (accountUsername === normalizedUsername) {
+        return { ...account, password }
+      }
+      return account
+    })
+
+    if (!nextAccounts.some((account) => {
+      const accountUsername = String(account.username || account.name || account.email || '').trim().toLowerCase()
+      return accountUsername === normalizedUsername
+    })) {
+      return false
+    }
+
+    saveToStorage(storageKeys.accounts, nextAccounts)
+    const active = loadFromStorage(storageKeys.account, null)
+    if (active) {
+      const activeUsername = String(active.username || active.name || active.email || '').trim().toLowerCase()
+      if (activeUsername === normalizedUsername) {
+        saveToStorage(storageKeys.account, { ...active, password })
+      }
+    }
+    return true
+  }
+
+  const handleGuest = () => {
+    saveToStorage('fitzii.guest', true)
+    setStage('app')
+    setPage('today')
+  }
+
+  const handleOnboardingFinish = ({ aesthetic: nextAesthetic, preferences: nextPrefs }) => {
+    setAesthetic(nextAesthetic)
+    persistPreferences(nextPrefs)
+    setStage('app')
+    setShowTutorial(true)
+    setPage('today')
+  }
+
+  const handleSignOut = async () => {
+    try {
+      await authApi.logout()
+    } catch (error) {
+      console.warn('Logout from the server failed, continuing with local session reset.', error)
+    }
+
+    saveToStorage(storageKeys.account, null)
+    saveToStorage('fitzii.guest', false)
+    setAccount(null)
+    setStage('auth')
+  }
+
+  const handleOpenApp = () => {
+    saveToStorage(storageKeys.introSeen, true)
+    setPage('today')
+  }
+
+  const handleAddGarment = async (garment) => {
+    const normalized = { status: 'available', ...garment }
+    const saved = { ...normalized, id: normalized.id || `g-${Date.now()}` }
+    setGarments((current) => {
+      const next = [saved, ...current]
+      saveToStorage(storageKeys.wardrobe, next)
+      return next
+    })
+    apiRequest('/wardrobe', { method: 'POST', body: JSON.stringify(saved) }).catch(() => { })
+    setApiError('')
+    return saved
+  }
+
+  const handleUpdateGarment = async (garment) => {
+    const saved = { ...garment, status: garment.status || 'available' }
+    setGarments((current) => {
+      const next = current.map((item) => item.id === saved.id ? saved : item)
+      saveToStorage(storageKeys.wardrobe, next)
+      return next
+    })
+    apiRequest(`/wardrobe/${encodeURIComponent(saved.id)}`, { method: 'PATCH', body: JSON.stringify(saved) }).catch(() => { })
+    setApiError('')
+    return saved
+  }
+
+  const handleImageUpdate = (saved) => {
+    if (!saved || !saved.id) return
+    setGarments((current) => {
+      const next = current.map((item) => item.id === saved.id ? { ...item, ...saved } : item)
+      saveToStorage(storageKeys.wardrobe, next)
+      return next
+    })
+  }
+
+  const handleDeleteGarment = async (garmentId) => {
+    setGarments((current) => {
+      const next = current.filter((item) => item.id !== garmentId)
+      saveToStorage(storageKeys.wardrobe, next)
+      return next
+    })
+    apiRequest(`/wardrobe/${encodeURIComponent(garmentId)}`, { method: 'DELETE' }).catch(() => { })
+    setApiError('')
+    setSavedOutfits((current) => current.filter((entry) => !entry.outfit?.some((item) => item.id === garmentId)))
+  }
+
+  const toggleGarmentAvailability = (garmentId, available = true) => {
+    const item = garments.find((entry) => entry.id === garmentId)
+    if (item) handleUpdateGarment({ ...item, status: available ? 'available' : 'unavailable' })
+  }
+
+  const handleExportWardrobe = () => {
+    const payload = exportWardrobePayload(garments)
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'wardrobe-export.json'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleImportWardrobe = async (event) => {
+    const [file] = event.target.files || []
+    if (!file) return
+
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text)
+      const imported = Array.isArray(parsed?.garments) ? parsed.garments : Array.isArray(parsed) ? parsed : []
+      if (!imported.length) {
+        window.alert('Import failed: the selected file is not a valid wardrobe export.')
+        return
+      }
+
+      const merge = window.confirm(`Import ${imported.length} garments? Existing records with matching IDs will be kept.`)
+      if (!merge) return
+
+      const currentIds = new Set(garments.map((item) => item.id))
+      const next = [...garments]
+      for (const garment of imported) {
+        if (!currentIds.has(garment.id)) {
+          next.push({ ...garment, status: garment.status || 'available' })
+        }
+      }
+
+      setGarments(next)
+      saveToStorage(storageKeys.wardrobe, next)
+    } catch (error) {
+      console.error(error)
+      window.alert('Import failed: the selected file is not a valid wardrobe export.')
+    } finally {
+      event.target.value = ''
     }
   }
 
-  if (!scores.length) return scoringConfig.neutralScore
-  return Number((scores.reduce((sum, value) => sum + value, 0) / scores.length).toFixed(3))
-}
+  const notice = 'rounded-xl border px-4 py-3 text-sm'
+  const savedAccounts = loadFromStorage(storageKeys.accounts, [])
 
-
-//contextMatch.js
-import { scoringConfig } from '../data/scoringConfig.js'
-
-function getItemSuitability(item, context) {
-  const contextualTags = Array.isArray(context) ? context : [context]
-  const itemTags = [
-    ...(item?.attributes?.seasonal_suitability || []),
-    ...(item?.attributes?.functional_tags || []),
-    ...(item?.tags || []),
-    item?.occasion,
-    item?.season,
-  ]
-    .map((tag) => String(tag).toLowerCase())
-    .filter(Boolean)
-
-  const directMatch = contextualTags.some((tag) => itemTags.includes(String(tag).toLowerCase()))
-  if (directMatch) return 1
-
-  const formalityTarget = typeof context?.formality_target === 'number' ? context.formality_target : 0.5
-  const itemFormality = item?.attributes?.formality_estimate ?? item?.formality ?? 0.5
-  const formalityScore = 1 - Math.abs(itemFormality - formalityTarget)
-
-  const weatherValue = context?.weather || context?.temperature
-  if (typeof weatherValue === 'number') {
-    const seasonTags = item?.attributes?.seasonal_suitability || []
-    const weatherTag = weatherValue > 28 ? 'hot_weather' : weatherValue < 15 ? 'cold_weather' : 'mild_weather'
-    if (seasonTags.includes(weatherTag)) return 0.8
+  if (stage === 'auth') {
+    return <AuthFlow accounts={savedAccounts} onSignUp={handleSignUp} onLogin={handleLogin} onResetPassword={handleResetPassword} onGuest={handleGuest} />
   }
 
-  return Number((0.45 + formalityScore * 0.55).toFixed(3))
-}
-
-export function contextMatch(outfit, context = 'casual') {
-  if (!Array.isArray(outfit) || !outfit.length) return 0.5
-
-  const contextValues = {
-    casual: ['casual', 'everyday_wear', 'mild_weather', 'hot_weather'],
-    formal: ['formal', 'evening', 'workday', 'smart_casual'],
-    warm: ['hot_weather', 'summer', 'casual', 'weekend'],
-    cold: ['cold_weather', 'winter', 'workday'],
-    rainy: ['rain_protection', 'workday', 'smart_casual'],
+  if (stage === 'onboarding') {
+    return (
+      <Onboarding
+        name={account?.name || 'there'}
+        initialPreferences={preferences}
+        initialAesthetic={aesthetic}
+        onFinish={handleOnboardingFinish}
+        onSkip={() => {
+          setStage('app')
+          setPage('today')
+          setShowTutorial(true)
+        }}
+      />
+    )
   }
 
-  const contextKey = context && typeof context === 'string' ? context.toLowerCase() : 'casual'
-  const activeValues = typeof context === 'object' ? [
-    context.occasion,
-    context.activity,
-    context.weather,
-    context.location,
-  ] : contextValues[contextKey] || contextValues.casual
+  return (
+    <div className="min-h-screen lg:grid lg:grid-cols-[272px_1fr]">
+      <aside className="hidden flex-col gap-5 border-r border-[#e8e2dc] bg-[#fffdfa] p-5 lg:sticky lg:top-0 lg:flex lg:h-screen lg:overflow-y-auto">
+        <div>
+          <p className="text-sm font-medium text-accent">Fitzii</p>
+          <h1 className="text-2xl font-bold leading-tight tracking-tight">Dress with more ease</h1>
+        </div>
 
-  const scores = outfit.map((item) => getItemSuitability(item, activeValues))
-  const average = scores.reduce((sum, value) => sum + value, 0) / scores.length
-  return Number(Math.min(Math.max(average, 0), 1).toFixed(3))
+        <div className="rounded-xl bg-accent-soft p-4">
+          <span className="text-xs font-medium text-accent">Account</span>
+          <strong className="block text-base">{account?.name || 'Guest'}</strong>
+          <small className="text-slate-600">{account?.email || 'Local profile'}</small>
+        </div>
+
+        <nav className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible" aria-label="Main">
+          {navItems.map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setPage(key)}
+              aria-current={page === key ? 'page' : undefined}
+              className={`shrink-0 rounded-lg px-4 py-2.5 text-left text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${page === key ? 'bg-ink text-white' : 'text-slate-700 hover:bg-slate-100'
+                }`}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="flex flex-col gap-2">
+          <button type="button" className="rounded-lg bg-accent-soft px-4 py-2.5 text-sm font-semibold text-accent transition hover:bg-violet-200" onClick={account ? handleSignOut : () => setStage('auth')}>
+            {account ? 'Log out' : 'Create account'}
+          </button>
+        </div>
+
+        <div className="card !p-4 lg:mt-auto">
+          <h3 className="text-sm font-medium text-slate-500">Saved picks</h3>
+          <strong className="block text-3xl font-bold">{savedOutfits.length}</strong>
+          <span className="text-sm text-slate-500">Curated outfits</span>
+        </div>
+
+        {selectedGarment ? (
+          <div className="card !p-4">
+            <h3 className="text-sm font-medium text-slate-500">Selected item</h3>
+            <strong className="block">{selectedGarment.name}</strong>
+            <span className="text-sm capitalize text-slate-500">
+              {selectedGarment.visual_attributes?.primary_colors?.[0] || selectedGarment.color || 'unknown'} · {selectedGarment.style_associations?.possible_aesthetics?.[0] || selectedGarment.style || 'varied'}
+            </span>
+          </div>
+        ) : null}
+      </aside>
+
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[#eee8e2] bg-[#f8f6f2]/95 px-4 py-3 backdrop-blur lg:hidden">
+        <button type="button" onClick={() => setPage('today')} className="flex min-h-11 items-center gap-2 text-left" aria-label="Fitzii home">
+          <span className="grid h-9 w-9 place-items-center rounded-2xl bg-accent text-sm font-bold text-white">f.</span>
+          <span><strong className="block text-sm leading-4">Fitzii</strong><small className="text-[11px] text-slate-500">Your personal stylist</small></span>
+        </button>
+        <div className="flex items-center gap-2">
+          {isOffline ? <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-900">Offline</span> : null}
+          <button type="button" onClick={account ? handleSignOut : () => setStage('auth')} className="grid h-10 w-10 place-items-center rounded-full border border-[#e8e2dc] bg-white text-sm font-bold text-accent" aria-label={account ? 'Log out' : 'Create account'}>
+            {(account?.name || 'G').trim().charAt(0).toUpperCase()}
+          </button>
+        </div>
+      </header>
+
+      <main className="page-bottom-safe mx-auto w-full max-w-6xl space-y-5 px-4 pt-4 sm:px-8 sm:pt-8 lg:space-y-6 lg:px-8 lg:pb-8">
+        {!account ? (
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+            <span>Guest mode is active. Your data stays in this browser.</span>
+            <button type="button" className="rounded-full bg-violet-600 px-3 py-1.5 font-semibold text-white" onClick={() => setStage('auth')}>Create account</button>
+          </div>
+        ) : null}
+        {showTutorial ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-sm font-semibold text-slate-900">Quick start</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              {['Pick your context', 'Tune your aesthetic', 'Save your favorite outfits'].map((item, index) => (
+                <div key={item} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-700">{index + 1}</span>
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {apiError ? <div className={`${notice} border-rose-200 bg-rose-50 text-rose-800`} role="alert">{apiError}</div> : null}
+        {isOffline ? <div className={`${notice} border-amber-200 bg-amber-50 text-amber-900`} role="status">Offline mode is on. Your changes will sync automatically when the connection returns.</div> : null}
+        {isLoading ? <div className={`${notice} border-slate-200 bg-white text-slate-600`} role="status">Connecting to your wardrobe…</div> : null}
+
+        {page === 'today' ? (
+          <>
+            <div className="relative overflow-hidden rounded-[26px] bg-[#352631] px-5 py-5 text-white shadow-[0_15px_35px_rgba(53,38,49,0.14)] sm:px-7 sm:py-7">
+              <div className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full border border-white/10" />
+              <div className="pointer-events-none absolute -right-2 -top-7 h-32 w-32 rounded-full border border-white/10" />
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#e4bdc8]">A little help getting dressed</p>
+              <h2 className="mt-2 max-w-xl text-[1.75rem] font-semibold leading-tight tracking-[-0.04em] sm:text-3xl">Good to see you, {account?.name?.split(' ')[0] || 'there'}.</h2>
+              <p className="mt-2 max-w-lg text-sm leading-6 text-white/70">Let’s make something great from the clothes you already own.</p>
+              <div className="mt-4 flex flex-wrap gap-2 text-xs font-medium text-white/80">
+                <span className="rounded-full bg-white/10 px-3 py-1.5">{garments.length} pieces in your closet</span>
+                <span className="rounded-full bg-white/10 px-3 py-1.5">{savedOutfits.length} saved looks</span>
+              </div>
+            </div>
+            <Today
+              outfits={recommendedOutfits}
+              aestheticOutfits={aestheticOutfits}
+              currentContext={context}
+              currentAesthetic={aesthetic}
+              templates={outfitTemplates}
+              currentTemplate={template}
+              onTemplateChange={setTemplate}
+              formalityBias={preferences.formalityBias || 3}
+              onContextChange={setContext}
+              onAestheticChange={setAesthetic}
+              onFormalityChange={(value) => persistPreferences({ ...preferences, formalityBias: value })}
+              onSaveOutfit={handleSaveOutfit}
+              savedCount={savedOutfits.length}
+            />
+          </>
+        ) : null}
+        {page === 'wardrobe' ? (
+          <Wardrobe
+            garments={garments}
+            onSelectGarment={setSelectedGarment}
+            onAddGarment={handleAddGarment}
+            onUpdateGarment={handleUpdateGarment}
+            onImageUpdate={handleImageUpdate}
+            onDeleteGarment={handleDeleteGarment}
+            onToggleGarmentAvailability={toggleGarmentAvailability}
+            onExportWardrobe={handleExportWardrobe}
+            onImportWardrobe={handleImportWardrobe}
+          />
+        ) : null}
+        {page === 'explore' ? <Explore outfits={recommendedOutfits} onSaveOutfit={handleSaveOutfit} /> : null}
+        {page === 'profile' ? (
+          <MyProfile
+            profile={profile}
+            onProfileChange={(nextProfile) => {
+              setProfile(nextProfile)
+              saveToStorage(storageKeys.profile, nextProfile)
+              apiRequest('/profile', { method: 'PUT', body: JSON.stringify(nextProfile) }).catch(() => { })
+            }}
+            onSaveProfile={() => {
+              saveToStorage(storageKeys.profile, profile)
+              setApiError('')
+            }}
+            onClearProfile={() => {
+              const confirmClear = window.confirm('Clear the entire profile?')
+              if (confirmClear) {
+                const nextProfile = createDefaultProfile()
+                setProfile(nextProfile)
+                saveToStorage(storageKeys.profile, nextProfile)
+              }
+            }}
+          />
+        ) : null}
+        {page === 'preferences' ? (
+          <Preferences
+            context={context}
+            aesthetic={aesthetic}
+            preferences={preferences}
+            onContextChange={setContext}
+            onAestheticChange={setAesthetic}
+            onPreferencesChange={persistPreferences}
+          />
+        ) : null}
+      </main>
+
+      <nav className="mobile-nav-safe fixed inset-x-0 bottom-0 z-40 border-t border-[#e8e2dc] bg-[#fffdfa]/95 px-2 pt-2 shadow-[0_-8px_28px_rgba(42,31,35,0.07)] backdrop-blur lg:hidden" aria-label="Main navigation">
+        <div className="mx-auto grid max-w-lg grid-cols-5">
+          {navItems.map(([key, label]) => <button key={key} type="button" onClick={() => setPage(key)} aria-current={page === key ? 'page' : undefined} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold transition ${page === key ? 'text-accent' : 'text-slate-500'}`}>
+            <span className={`grid h-7 w-12 place-items-center rounded-full transition ${page === key ? 'bg-accent-soft' : ''}`}><NavIcon name={key} /></span>
+            {label === 'Preferences' ? 'Style' : label === 'Wardrobe' ? 'Closet' : label}
+          </button>)}
+        </div>
+      </nav>
+
+    </div>
+  )
 }
 
-//index.js
-import { generateCandidates } from './candidateGenerator.js'
-import { rankOutfit } from './ranker.js'
-import { normalizeGarments, validateOutfit } from './validation.js'
+export default App
 
-export function generateOutfits({ garments, context = 'casual', preferences = {}, history = [], limit = 5, profile = null }) {
-  const validGarments = normalizeGarments(garments).filter((item) => item.status !== 'unavailable')
-  if (!validGarments.length) return []
+import { useState } from 'react'
+import { createDefaultProfile, normalizeProfile } from '../utils/bodyProfile.js'
+import PageHeader from '../components/PageHeader.jsx'
 
-  const candidates = generateCandidates(validGarments, 4)
-    .filter((outfit) => validateOutfit(outfit))
-    .map((outfit) => ({
-      id: outfit.map((item) => item.id).join('-'),
-      outfit,
-      ...rankOutfit(outfit, context, preferences, history, profile),
+function HelpPopover({ title, text }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <div className="group relative inline-flex">
+      <button
+        type="button"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold text-slate-600 transition hover:border-violet-400 hover:text-violet-700"
+        aria-label={title}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        onClick={() => setIsOpen((current) => !current)}
+        onBlur={() => setIsOpen(false)}
+        title={title}
+      >
+        ?
+      </button>
+      {isOpen ? (
+        <div role="dialog" aria-label={title} className="absolute left-0 top-7 z-20 w-64 rounded-xl border border-slate-200 bg-white p-2 text-left text-xs leading-snug text-slate-600 shadow-lg">
+          <p className="font-semibold text-slate-800">{title}</p>
+          <p className="mt-1">{text}</p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const measurementLabels = {
+  shoulderWidth: 'Shoulder width',
+  chestCircumference: 'Chest circumference',
+  waistCircumference: 'Waist circumference',
+  hipCircumference: 'Hip circumference',
+  inseam: 'Inseam',
+  outseam: 'Outseam',
+  sleeveLength: 'Sleeve length',
+  armCircumference: 'Arm circumference',
+  thighCircumference: 'Thigh circumference',
+  neckCircumference: 'Neck circumference',
+}
+
+const measurementGuides = {
+  shoulderWidth: { label: 'Shoulder width', image: '/images/measurement-guides/shoulder.svg', tip: 'Measure straight across your upper back from shoulder bone to shoulder bone.' },
+  chestCircumference: { label: 'Chest circumference', image: '/images/measurement-guides/chest.svg', tip: 'Wrap the tape around the fullest part of the chest, keeping it level under your arms.' },
+  waistCircumference: { label: 'Waist circumference', image: '/images/measurement-guides/waist.svg', tip: 'Measure around the natural waist, usually the narrowest part of your torso.' },
+  hipCircumference: { label: 'Hip circumference', image: '/images/measurement-guides/hip.svg', tip: 'Measure around the fullest part of your hips and seat, standing naturally.' },
+  inseam: { label: 'Inseam', image: '/images/measurement-guides/inseam.svg', tip: 'Measure from the crotch seam to the bottom of the ankle, keeping the leg straight.' },
+  outseam: { label: 'Outseam', image: '/images/measurement-guides/inseam.svg', tip: 'Measure from the waistband to the floor or hem at the outside of the leg.' },
+  sleeveLength: { label: 'Sleeve length', image: '/images/measurement-guides/sleeve.svg', tip: 'Measure from the shoulder edge down to the wrist bone with the arm relaxed.' },
+  armCircumference: { label: 'Arm circumference', image: '/images/measurement-guides/sleeve.svg', tip: 'Measure around the fullest part of the upper arm, relaxed but not tucked in.' },
+  thighCircumference: { label: 'Thigh circumference', image: '/images/measurement-guides/inseam.svg', tip: 'Measure around the fullest part of the upper thigh, standing with weight even.' },
+  neckCircumference: { label: 'Neck circumference', image: '/images/measurement-guides/shoulder.svg', tip: 'Wrap the tape around the base of the neck, keeping it comfortable and level.' },
+}
+
+export default function MyProfile({ profile, onProfileChange, onClearProfile, onSaveProfile }) {
+  const current = normalizeProfile(profile || createDefaultProfile())
+  const measurements = Array.isArray(current.measurements) ? current.measurements : []
+  const updateField = (field, value) => onProfileChange(normalizeProfile({ ...current, [field]: value }))
+
+  const updateMeasurement = (index, field, value) => {
+    const next = [...measurements]
+    next[index] = { ...next[index], [field]: value }
+    onProfileChange(normalizeProfile({ ...current, measurements: next }))
+  }
+
+  const addMeasurement = () => {
+    onProfileChange(normalizeProfile({
+      ...current,
+      measurements: [...measurements, { name: 'chestCircumference', value: '', unit: 'cm', notes: '', confidence: 'estimated' }],
     }))
-    .filter((entry) => entry.score >= 0.38)
-    .sort((a, b) => b.score - a.score)
-
-  const unique = []
-  const seen = new Set()
-  for (const entry of candidates) {
-    const key = entry.outfit.map((item) => item.id).sort().join('|')
-    if (seen.has(key)) continue
-    seen.add(key)
-    unique.push(entry)
   }
 
-  return unique.slice(0, limit).map((entry) => ({
-    id: entry.id,
-    outfit: entry.outfit,
-    score: entry.score,
-    breakdown: entry.breakdown,
-    evidenceCoverage: entry.evidenceCoverage,
-  }))
+  const removeMeasurement = (index) => {
+    onProfileChange(normalizeProfile({ ...current, measurements: measurements.filter((_, i) => i !== index) }))
+  }
+
+  const getGuide = (name) => measurementGuides[name] || measurementGuides.chestCircumference
+
+  return (
+    <section className="space-y-6">
+      <PageHeader eyebrow="My profile" title="Body profile">
+        <button type="button" className="btn-secondary" onClick={onClearProfile}>Clear profile</button>
+        <button type="button" className="btn-primary" onClick={onSaveProfile}>Save profile</button>
+      </PageHeader>
+
+      <div className="grid items-start gap-5 lg:grid-cols-2">
+        <div className="settings-card space-y-4">
+          <h3 className="text-lg font-semibold">Basic body information</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="field">
+              Height
+              <input className="input" type="number" value={current.height ?? ''} onChange={(e) => updateField('height', Number(e.target.value) || null)} placeholder="170" />
+            </label>
+            <label className="field">
+              Height unit
+              <select className="input" value={current.heightUnit || 'cm'} onChange={(e) => updateField('heightUnit', e.target.value)}>
+                <option value="cm">Centimetres</option>
+                <option value="in">Feet/inches</option>
+              </select>
+            </label>
+            <label className="field">
+              Weight
+              <input className="input" type="number" value={current.weight ?? ''} onChange={(e) => updateField('weight', Number(e.target.value) || null)} placeholder="62" />
+            </label>
+            <label className="field">
+              Weight unit
+              <select className="input" value={current.weightUnit || 'kg'} onChange={(e) => updateField('weightUnit', e.target.value)}>
+                <option value="kg">Kilograms</option>
+                <option value="lb">Pounds</option>
+              </select>
+            </label>
+            <label className="field sm:col-span-2">
+              Fit notes
+              <textarea className="input" rows="3" value={current.fitNotes || ''} onChange={(e) => updateField('fitNotes', e.target.value)} />
+            </label>
+          </div>
+        </div>
+
+        <div className="settings-card space-y-4">
+          <h3 className="text-lg font-semibold">Fit preferences</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="field">
+              <span className="flex items-center gap-2">
+                <span>Tops fit</span>
+                <HelpPopover title="Tops fit" text="This is how you usually like your shirts, knitwear, and jackets to sit on the body: fitted, regular, relaxed, or oversized." />
+              </span>
+              <select className="input" value={current.fitPreferences?.tops || 'regular'} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, tops: e.target.value })}>
+                <option value="fitted">Fitted</option>
+                <option value="slim">Slim</option>
+                <option value="regular">Regular</option>
+                <option value="relaxed">Relaxed</option>
+                <option value="oversized">Oversized</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="flex items-center gap-2">
+                <span>Bottoms fit</span>
+                <HelpPopover title="Bottoms fit" text="Use this to describe how your trousers, jeans, and skirts usually sit around the hips, thighs, and leg shape." />
+              </span>
+              <select className="input" value={current.fitPreferences?.bottoms || 'straight'} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, bottoms: e.target.value })}>
+                <option value="slim">Slim</option>
+                <option value="straight">Straight</option>
+                <option value="relaxed">Relaxed</option>
+                <option value="wide-leg">Wide-leg</option>
+                <option value="oversized">Oversized</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="flex items-center gap-2">
+                <span>Upper-body volume</span>
+                <HelpPopover title="Upper-body volume" text="Think about how roomy your shoulders, chest, and sleeves feel. 'Balanced' usually means easy and polished; 'relaxed' means more ease and space." />
+              </span>
+              <input className="input" value={current.fitPreferences?.upperBodyVolume || ''} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, upperBodyVolume: e.target.value })} />
+            </label>
+            <label className="field">
+              <span className="flex items-center gap-2">
+                <span>Lower-body volume</span>
+                <HelpPopover title="Lower-body volume" text="This describes how roomy your hips, thighs, and legs feel. It helps the app compare your preferred silhouette to the garments you own." />
+              </span>
+              <input className="input" value={current.fitPreferences?.lowerBodyVolume || ''} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, lowerBodyVolume: e.target.value })} />
+            </label>
+          </div>
+        </div>
+
+        <div className="settings-card space-y-4 lg:col-span-2">
+          <h3 className="text-lg font-semibold">Body proportions</h3>
+          <div className="flex flex-wrap gap-2">
+            {['Longer torso', 'Shorter torso', 'Longer legs', 'Shorter legs', 'Broad shoulders', 'Narrow shoulders'].map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={current.proportions?.includes(option) ? 'pill active' : 'pill'}
+                onClick={() => {
+                  const selected = current.proportions || []
+                  updateField('proportions', selected.includes(option) ? selected.filter((entry) => entry !== option) : [...selected, option])
+                }}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="settings-card space-y-4 lg:col-span-2">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold">Body measurements</h3>
+              <p className="mt-1 max-w-prose text-sm text-slate-600">
+                Use a soft tape, stand tall, and keep it snug but not tight. Measure in a relaxed posture for the most wearable fit.
+              </p>
+            </div>
+            <button type="button" className="btn-primary" onClick={addMeasurement}>Add measurement</button>
+          </div>
+
+          {measurements.length === 0 ? <p className="text-sm text-slate-500">No measurements recorded yet.</p> : null}
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            {measurements.map((measurement, index) => {
+              const guide = getGuide(measurement.name)
+              return (
+                <div key={`${measurement.name || 'measurement'}-${index}`} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center gap-3">
+                    <img src={guide.image} alt={guide.label} className="h-14 w-14 shrink-0 rounded-lg bg-white object-contain p-1 ring-1 ring-slate-200" />
+                    <div className="min-w-0">
+                      <p className="font-semibold">{guide.label}</p>
+                      <p className="text-xs leading-snug text-slate-600">{guide.tip}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-[1fr_90px_80px] gap-2">
+                    <select className="input" value={measurement.name || 'chestCircumference'} onChange={(e) => updateMeasurement(index, 'name', e.target.value)}>
+                      {Object.entries(measurementLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                    </select>
+                    <input className="input" type="number" value={measurement.value ?? ''} onChange={(e) => updateMeasurement(index, 'value', Number(e.target.value) || null)} placeholder="0" />
+                    <select className="input" value={measurement.unit || 'cm'} onChange={(e) => updateMeasurement(index, 'unit', e.target.value)}>
+                      <option value="cm">cm</option>
+                      <option value="in">in</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-[150px_1fr_auto] gap-2">
+                    <input className="input" type="date" value={measurement.date || ''} onChange={(e) => updateMeasurement(index, 'date', e.target.value)} />
+                    <input className="input" type="text" value={measurement.notes || ''} onChange={(e) => updateMeasurement(index, 'notes', e.target.value)} placeholder="Notes" />
+                    <button type="button" className="btn-secondary" onClick={() => removeMeasurement(index)}>Remove</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
 }
 
-export { generateCandidates, rankOutfit, normalizeGarments }
+import { useMemo } from 'react'
+import OutfitCard from '../components/OutfitCard.jsx'
+import OutfitDetails from '../components/OutfitDetails.jsx'
 
-//novelty.jsexport function novelty(outfit, history = []) {
-  if (!Array.isArray(outfit) || outfit.length === 0) return 0.5
+const contextOptions = [
+  ['casual', 'Everyday'],
+  ['formal', 'Dressy'],
+  ['warm', 'Warm day'],
+  ['cold', 'Cold day'],
+  ['rainy', 'Rainy'],
+]
+const aestheticOptions = ['minimal', 'classic', 'street']
 
-  if (!history || !history.length) return 0.5
+export default function Today({
+  outfits,
+  aestheticOutfits = [],
+  currentContext,
+  currentAesthetic,
+  formalityBias = 3,
+  onContextChange,
+  onAestheticChange,
+  onFormalityChange,
+  onSaveOutfit,
+  savedCount,
+  templates = [],
+  currentTemplate = null,
+  onTemplateChange,
+}) {
+  const primary = useMemo(() => outfits[0], [outfits])
+  const formalityLabel = ['Relaxed', 'Easygoing', 'Balanced', 'Polished', 'Dressy'][Math.max(0, Math.min(4, Number(formalityBias) - 1))]
 
-  const outfitIds = new Set(outfit.map((item) => item.id))
-  const past = history
-    .map((entry) => entry.items || entry.outfit || [])
-    .flatMap((items) => (Array.isArray(items) ? items : [items]))
-    .map((item) => item.id || item)
+  return (
+    <section className="space-y-7 sm:space-y-9">
+      <div className="space-y-3">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">For the day ahead</p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-ink sm:text-3xl">What are we wearing?</h2>
+          </div>
+          <span className="mb-1 shrink-0 rounded-full border border-[#e8e2dc] bg-white px-3 py-1.5 text-xs font-medium text-slate-600">{savedCount} saved</span>
+        </div>
+        <p className="text-sm text-slate-500">A few good ideas, made from your own closet.</p>
+      </div>
 
-  const bestSimilarity = past.reduce((max, previousId) => {
-    const previousSet = new Set(Array.isArray(previousId) ? previousId.map((entry) => entry.id || entry) : [previousId])
-    const intersection = [...outfitIds].filter((id) => previousSet.has(id)).length
-    const union = new Set([...outfitIds, ...previousSet]).size
-    const score = union ? intersection / union : 0
-    return Math.max(max, score)
-  }, 0)
+      <div className="rounded-[24px] border border-[#e8e2dc] bg-white p-4 shadow-[0_8px_28px_rgba(42,31,35,0.04)] sm:p-5">
+        <div>
+          <p className="text-sm font-semibold text-ink">What’s the plan?</p>
+          <p className="mt-0.5 text-xs text-slate-500">We’ll dress for the moment.</p>
+        </div>
+        <div className="hide-scrollbar -mx-4 mt-3 flex snap-x gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+          {contextOptions.map(([value, label]) => <button key={value} type="button" aria-pressed={currentContext === value} onClick={() => onContextChange?.(value)} className={`min-h-11 shrink-0 snap-start rounded-full border px-4 text-sm font-medium transition ${currentContext === value ? 'border-accent bg-accent text-white shadow-sm' : 'border-[#e8e2dc] bg-[#fbfaf8] text-slate-700 hover:border-accent/40'}`}>{label}</button>)}
+        </div>
 
-  return Number((1 - bestSimilarity).toFixed(3))
+        <div className="mt-5 border-t border-[#f0ece7] pt-4">
+          <div className="flex items-baseline justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold text-ink">Pick a feeling</p>
+              <p className="mt-0.5 text-xs text-slate-500">Give today’s look a little direction.</p>
+            </div>
+            {currentTemplate ? <button type="button" onClick={() => onTemplateChange?.(null)} className="min-h-10 px-2 text-xs font-semibold text-accent">Clear</button> : null}
+          </div>
+          <div className="hide-scrollbar -mx-4 mt-3 flex snap-x gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
+            <button type="button" aria-pressed={!currentTemplate} onClick={() => onTemplateChange?.(null)} className={`min-h-11 shrink-0 snap-start rounded-xl border px-4 text-sm font-medium transition ${!currentTemplate ? 'border-[#d9c1c9] bg-[#f7f0f2] text-accent' : 'border-[#e8e2dc] bg-white text-slate-600'}`}>Surprise me</button>
+            {templates.map((item) => <button key={item.id} type="button" aria-pressed={currentTemplate === item.id} title={item.mood} onClick={() => onTemplateChange?.(item.id)} className={`min-h-11 shrink-0 snap-start rounded-xl border px-4 text-sm font-medium transition ${currentTemplate === item.id ? 'border-[#d9c1c9] bg-[#f7f0f2] text-accent' : 'border-[#e8e2dc] bg-white text-slate-600'}`}>{item.label}</button>)}
+          </div>
+        </div>
+
+        <details className="group mt-4 border-t border-[#f0ece7] pt-3">
+          <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between text-sm font-medium text-slate-600 [&::-webkit-details-marker]:hidden">
+            Fine-tune your picks
+            <span className="text-lg text-accent transition group-open:rotate-45">+</span>
+          </summary>
+          <div className="space-y-4 pt-3">
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Aesthetic</p>
+              <div className="flex flex-wrap gap-2">
+                {aestheticOptions.map((option) => <button key={option} type="button" aria-pressed={currentAesthetic === option} onClick={() => onAestheticChange?.(option)} className={`min-h-10 rounded-full border px-4 text-sm capitalize ${currentAesthetic === option ? 'border-accent bg-accent text-white' : 'border-[#e8e2dc] bg-white text-slate-700'}`}>{option}</button>)}
+              </div>
+            </div>
+            <label className="block">
+              <span className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500"><span>Dressiness</span><span className="normal-case tracking-normal text-accent">{formalityLabel}</span></span>
+              <input type="range" min="1" max="5" value={Number(formalityBias) || 3} onChange={(event) => onFormalityChange?.(Number(event.target.value))} className="h-2 w-full accent-accent" aria-label="Dressiness" />
+            </label>
+          </div>
+        </details>
+      </div>
+
+      <section className="space-y-4">
+        <div className="flex items-end justify-between gap-3">
+          <div><p className="text-xs font-semibold uppercase tracking-[0.17em] text-accent">Your strongest match</p><h3 className="mt-1 text-xl font-semibold tracking-tight text-ink">Today’s outfit</h3></div>
+          <span className="mb-1 rounded-full bg-[#eee7e3] px-3 py-1 text-xs font-semibold capitalize text-slate-600">{currentContext}</span>
+        </div>
+        {primary ? <>
+          <OutfitCard featured outfit={primary.outfit} score={primary.score} breakdown={primary.breakdown} templates={primary.templates} onSave={() => onSaveOutfit(primary)} />
+          <OutfitDetails outfit={primary.outfit} score={primary.score} breakdown={primary.breakdown} />
+        </> : <div className="rounded-[24px] border border-dashed border-[#d9cec5] bg-white px-5 py-10 text-center">
+          <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[#f3e9ec] text-xl text-accent">✦</span>
+          <h3 className="mt-3 font-semibold text-ink">A look is waiting in your closet</h3>
+          <p className="mx-auto mt-1 max-w-sm text-sm leading-6 text-slate-500">Add a top, a bottom, and shoes—or try another occasion or vibe.</p>
+        </div>}
+      </section>
+
+      {outfits.length > 1 ? <section className="space-y-3">
+        <div className="flex items-baseline justify-between"><h3 className="text-lg font-semibold tracking-tight text-ink">A few more ideas</h3><span className="text-xs text-slate-500">Picked for you</span></div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{outfits.slice(1, 4).map((item) => <OutfitCard key={item.id} outfit={item.outfit} score={item.score} breakdown={item.breakdown} templates={item.templates} onSave={() => onSaveOutfit(item)} />)}</div>
+      </section> : null}
+
+      <section className="space-y-3">
+        <div><p className="text-xs font-semibold uppercase tracking-[0.17em] text-accent">More like your style</p><h3 className="mt-1 text-lg font-semibold tracking-tight text-ink">In your {currentAesthetic} aesthetic</h3></div>
+        {aestheticOutfits.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{aestheticOutfits.slice(0, 3).map((item) => <OutfitCard key={item.id} outfit={item.outfit} score={item.score} breakdown={item.breakdown} templates={item.templates} onSave={() => onSaveOutfit(item)} />)}</div> : <p className="rounded-2xl border border-[#e8e2dc] bg-white p-4 text-sm text-slate-500">Add more tagged pieces to get suggestions in this aesthetic.</p>}
+      </section>
+    </section>
+  )
 }
 
-//outfitCompatibility.js
 
-import { pairCompatibility } from './pairCompatibility.js'
-import { colorCompatibility } from './colorCompatibility.js'
-import { silhouetteAlignment } from './silhouette.js'
+import { useMemo, useState } from 'react'
+import WardrobeGrid from '../components/WardrobeGrid.jsx'
+import PageHeader from '../components/PageHeader.jsx'
+import { wardrobeApi } from '../utils/api.js'
 
-function globalOutfitScore(outfit) {
-  const pairScores = []
-  const paletteScores = []
-  const formalityScores = []
+const COLOR_OPTIONS = [
+  { value: 'ivory', label: 'Ivory', hex: '#f4f1e8' },
+  { value: 'white', label: 'White', hex: '#ffffff' },
+  { value: 'black', label: 'Black', hex: '#17161d' },
+  { value: 'grey', label: 'Grey', hex: '#8b8e94' },
+  { value: 'navy', label: 'Navy', hex: '#1f2f4a' },
+  { value: 'blue', label: 'Blue', hex: '#4a7fc1' },
+  { value: 'beige', label: 'Beige', hex: '#cdb99a' },
+  { value: 'brown', label: 'Brown', hex: '#6b4a32' },
+  { value: 'olive', label: 'Olive', hex: '#6b7340' },
+  { value: 'green', label: 'Green', hex: '#2f6b4f' },
+  { value: 'burgundy', label: 'Burgundy', hex: '#7a2236' },
+  { value: 'yellow', label: 'Yellow', hex: '#e8c547' },
+  { value: 'red', label: 'Red', hex: '#c93b3b' },
+  { value: 'pink', label: 'Pink', hex: '#d99ab2' },
+  { value: 'purple', label: 'Purple', hex: '#7c5ac5' },
+]
 
-  for (let i = 0; i < outfit.length; i += 1) {
-    for (let j = i + 1; j < outfit.length; j += 1) {
-      const pairScore = pairCompatibility(outfit[i], outfit[j])
-      pairScores.push(pairScore)
-      paletteScores.push(colorCompatibility(outfit[i], outfit[j]))
-      const formalityA = outfit[i]?.attributes?.formality_estimate ?? outfit[i]?.formality ?? 0.5
-      const formalityB = outfit[j]?.attributes?.formality_estimate ?? outfit[j]?.formality ?? 0.5
-      formalityScores.push(1 - Math.abs(formalityA - formalityB))
+const SIZE_OPTIONS = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'Custom']
+const STYLE_OPTIONS = ['minimal', 'classic', 'street', 'boho', 'romantic', 'creative', 'edgy', 'preppy', 'athleisure', 'modern']
+const TYPE_OPTIONS = {
+  top: ['tee', 'shirt', 'knit', 'sweater', 'blouse', 'polo', 'tank', 'dress'],
+  bottom: ['jeans', 'trouser', 'skirt', 'short', 'legging', 'chino'],
+  outerwear: ['blazer', 'jacket', 'coat', 'cardigan', 'vest', 'parka'],
+  accessory: ['bag', 'belt', 'scarf', 'hat', 'jewellery', 'sunglasses'],
+  shoe: ['sneaker', 'loafer', 'heel', 'boot', 'sandals'],
+}
+const SUBTYPE_OPTIONS = {
+  top: ['basic', 'button-up', 'oversized', 'fitted', 'linen', 'striped', 'graphic', 'cotton'],
+  bottom: ['straight', 'wide-leg', 'slim', 'cargo', 'flare', 'linen', 'denim'],
+  outerwear: ['structured', 'relaxed', 'cropped', 'oversized', 'tailored', 'layering'],
+  accessory: ['leather', 'canvas', 'wool', 'metal', 'structured', 'minimal'],
+  shoe: ['low-profile', 'chunky', 'sleek', 'ankle-height', 'workwear', 'dress'],
+}
+
+const blankDraft = {
+  id: '',
+  name: '',
+  category: 'top',
+  type: 'tee',
+  subtype: 'basic',
+  brand: '',
+  size: 'M',
+  sizeSystem: 'us',
+  status: 'available',
+  color: 'ivory',
+  fit: 'regular',
+  style: 'minimal',
+  aesthetic: 'clean',
+  pattern: 'solid',
+  material: 'cotton',
+  visual_attributes: { primary_colors: ['ivory'], secondary_colors: [], pattern: 'solid', texture: 'smooth' },
+  attributes: { formality_estimate: 0.5, visual_weight_estimate: 0.5, seasonal_suitability: [], functional_tags: [] },
+  fit_and_proportions: { apparent_fit: 'regular', silhouette: 'straight', relative_volume: 'medium', relative_length: 'regular' },
+}
+
+function buildGarmentFromDraft(draft) {
+  return {
+    id: draft.id || `g-${Date.now()}`,
+    name: draft.name || 'Untitled garment',
+    category: draft.category || 'top',
+    type: draft.type || 'tee',
+    subtype: draft.subtype || '',
+    brand: draft.brand || '',
+    size: draft.size || '',
+    sizeSystem: draft.sizeSystem || 'us',
+    status: draft.status || 'available',
+    color: draft.color || 'unknown',
+    hex: draft.hex || '#d9d9d9',
+    style: draft.style || 'minimal',
+    aesthetic: draft.aesthetic || 'clean',
+    pattern: draft.pattern || 'solid',
+    material: draft.material || 'unknown',
+    fit: draft.fit || 'regular',
+    silhouette: draft.fit_and_proportions?.silhouette || 'straight',
+    season: draft.season || 'all',
+    visual_attributes: {
+      primary_colors: draft.visual_attributes?.primary_colors || [draft.color || 'unknown'],
+      secondary_colors: draft.visual_attributes?.secondary_colors || [],
+      pattern: draft.visual_attributes?.pattern || 'solid',
+      texture: draft.visual_attributes?.texture || 'smooth',
+      visible_details: draft.visible_details || '',
+    },
+    attributes: {
+      formality_estimate: Number(draft.attributes?.formality_estimate ?? 0.5),
+      visual_weight_estimate: Number(draft.attributes?.visual_weight_estimate ?? 0.5),
+      seasonal_suitability: draft.attributes?.seasonal_suitability || [],
+      functional_tags: draft.attributes?.functional_tags || [],
+    },
+    fit_and_proportions: {
+      apparent_fit: draft.fit_and_proportions?.apparent_fit || draft.fit || 'regular',
+      silhouette: draft.fit_and_proportions?.silhouette || 'straight',
+      relative_volume: draft.fit_and_proportions?.relative_volume || 'medium',
+      relative_length: draft.fit_and_proportions?.relative_length || 'regular',
+      optional_measurements: draft.fit_and_proportions?.optional_measurements || {},
+    },
+  }
+}
+
+function Field({ label, children, className = '' }) {
+  return (
+    <label className={`field ${className}`}>
+      {label}
+      {children}
+    </label>
+  )
+}
+
+export default function Wardrobe({ garments, onSelectGarment, onAddGarment, onUpdateGarment, onImageUpdate, onDeleteGarment, onToggleGarmentAvailability, onExportWardrobe, onImportWardrobe }) {
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [mode, setMode] = useState('quick')
+  const [draft, setDraft] = useState(blankDraft)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [editingId, setEditingId] = useState(null)
+  const [imageFile, setImageFile] = useState(null)
+
+  const visibleGarments = useMemo(() => {
+    return garments.filter((garment) => {
+      const matchesSearch = !search || garment.name?.toLowerCase().includes(search.toLowerCase())
+      const matchesStatus = statusFilter === 'all' || garment.status === statusFilter
+      const matchesCategory = categoryFilter === 'all' || garment.category === categoryFilter
+      return matchesSearch && matchesStatus && matchesCategory
+    })
+  }, [categoryFilter, garments, search, statusFilter])
+
+  const closeForm = () => {
+    setIsFormOpen(false)
+    setEditingId(null)
+    setImageFile(null)
+    setDraft(blankDraft)
+  }
+
+  const openNew = () => {
+    setDraft(blankDraft)
+    setEditingId(null)
+    setImageFile(null)
+    setMode('quick')
+    setIsFormOpen(true)
+  }
+
+  const handleSubmit = async () => {
+    const garment = buildGarmentFromDraft(draft)
+    const file = imageFile
+    const targetId = editingId
+    closeForm()
+
+    if (targetId) {
+      await onUpdateGarment?.({ ...garment, id: targetId })
+      if (file) onImageUpdate?.(await wardrobeApi.upload(targetId, file))
+    } else {
+      const saved = await onAddGarment?.(garment)
+      if (file && saved) onImageUpdate?.(await wardrobeApi.upload(saved.id, file))
     }
   }
 
-  const palette = pairScores.length ? paletteScores.reduce((sum, value) => sum + value, 0) / paletteScores.length : 0.5
-  const formality = formalityScores.length ? formalityScores.reduce((sum, value) => sum + value, 0) / formalityScores.length : 0.5
-  const pairAverage = pairScores.length ? pairScores.reduce((sum, value) => sum + value, 0) / pairScores.length : 0.5
+  const handleDraftChange = (field, value) => setDraft((current) => ({ ...current, [field]: value }))
+  const text = (field) => ({ className: 'input', value: draft[field] ?? '', onChange: (e) => handleDraftChange(field, e.target.value) })
+  const score = (field) => ({
+    className: 'input',
+    type: 'number', min: '0', max: '1', step: '0.1',
+    value: draft.attributes?.[field] ?? 0.5,
+    onChange: (e) => handleDraftChange('attributes', { ...draft.attributes, [field]: Number(e.target.value) || 0.5 }),
+  })
 
-  return (pairAverage * 0.7 + ((palette + formality) / 2) * 0.3)
+  const activeColor = COLOR_OPTIONS.find((option) => option.value === draft.color) || COLOR_OPTIONS[0]
+  const typeChoices = TYPE_OPTIONS[draft.category] || TYPE_OPTIONS.top
+  const subtypeChoices = SUBTYPE_OPTIONS[draft.category] || SUBTYPE_OPTIONS.top
+
+  return (
+    <section className="space-y-6">
+      <PageHeader eyebrow="Closet" title="Wardrobe overview">
+        <button type="button" className="btn-secondary flex-1 sm:flex-none" onClick={onExportWardrobe}>Export</button>
+        <label className="btn-secondary flex-1 sm:flex-none">
+          Import
+          <input type="file" accept="application/json" className="sr-only" onChange={onImportWardrobe} />
+        </label>
+        <button type="button" className="btn-primary w-full sm:w-auto" onClick={openNew}>+ Add clothing</button>
+      </PageHeader>
+
+      <div className="grid gap-2 rounded-2xl border border-[#e8e2dc] bg-white p-3 shadow-[0_8px_28px_rgba(42,31,35,0.04)] sm:grid-cols-[1fr_160px_160px] sm:p-4">
+        <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search garments" />
+        <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="all">All availability</option>
+          <option value="available">Available</option>
+          <option value="unavailable">Unavailable</option>
+        </select>
+        <select className="input" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+          <option value="all">All categories</option>
+          <option value="top">Top</option>
+          <option value="bottom">Bottom</option>
+          <option value="outerwear">Outerwear</option>
+          <option value="accessory">Accessory</option>
+          <option value="shoe">Shoe</option>
+        </select>
+      </div>
+
+      {isFormOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-[#211a20]/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" onClick={closeForm}>
+          <div className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-t-[26px] bg-[#fffdfa] p-4 shadow-2xl sm:rounded-[26px] sm:p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-accent">{editingId ? 'Edit clothing' : 'Add clothing'}</p>
+                <h2 className="text-2xl font-bold tracking-tight">{mode === 'quick' ? 'Quick add' : 'Detailed add'}</h2>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" className={mode === 'quick' ? 'pill active' : 'pill'} onClick={() => setMode('quick')}>Quick</button>
+                <button type="button" className={mode === 'detailed' ? 'pill active' : 'pill'} onClick={() => setMode('detailed')}>Detailed</button>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Garment image" className="sm:col-span-2">
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/avif"
+                  onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+                  className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-accent-soft file:px-3 file:py-2 file:text-sm file:font-semibold file:text-accent hover:file:bg-violet-200"
+                />
+              </Field>
+
+              <div className="sm:col-span-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <span className="h-7 w-7 shrink-0 rounded-full border border-slate-200" style={{ background: activeColor.hex }} />
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-500">Quick summary</p>
+                  <p className="text-sm font-semibold text-slate-800">{draft.name || 'Untitled garment'} · {activeColor.label}</p>
+                </div>
+              </div>
+
+              <Field label="Garment name" className="sm:col-span-2"><input {...text('name')} /></Field>
+              <Field label="Category">
+                <select className="input" value={draft.category} onChange={(e) => {
+                  const nextCategory = e.target.value
+                  const nextType = TYPE_OPTIONS[nextCategory]?.[0] || 'tee'
+                  const nextSubtype = SUBTYPE_OPTIONS[nextCategory]?.[0] || 'basic'
+                  handleDraftChange('category', nextCategory)
+                  handleDraftChange('type', nextType)
+                  handleDraftChange('subtype', nextSubtype)
+                }}>
+                  <option value="top">Top</option>
+                  <option value="bottom">Bottom</option>
+                  <option value="outerwear">Outerwear</option>
+                  <option value="accessory">Accessory</option>
+                  <option value="shoe">Shoe</option>
+                </select>
+              </Field>
+              <Field label="Type">
+                <select className="input" value={draft.type} onChange={(e) => handleDraftChange('type', e.target.value)}>
+                  {typeChoices.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </Field>
+              <Field label="Subtype">
+                <select className="input" value={draft.subtype} onChange={(e) => handleDraftChange('subtype', e.target.value)}>
+                  {subtypeChoices.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </Field>
+              <Field label="Brand"><input {...text('brand')} /></Field>
+              <Field label="Size">
+                <select className="input" value={draft.size || 'M'} onChange={(e) => handleDraftChange('size', e.target.value)}>
+                  {SIZE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </Field>
+              <Field label="Size system">
+                <select className="input" value={draft.sizeSystem} onChange={(e) => handleDraftChange('sizeSystem', e.target.value)}>
+                  <option value="us">US</option>
+                  <option value="uk">UK</option>
+                  <option value="eu">EU</option>
+                  <option value="fr">FR</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </Field>
+              <Field label="Availability">
+                <select className="input" value={draft.status} onChange={(e) => handleDraftChange('status', e.target.value)}>
+                  <option value="available">Available</option>
+                  <option value="unavailable">Unavailable</option>
+                </select>
+              </Field>
+              <Field label="Primary color">
+                <select className="input" value={draft.color} onChange={(e) => {
+                  const nextColor = e.target.value
+                  handleDraftChange('color', nextColor)
+                  handleDraftChange('visual_attributes', {
+                    ...draft.visual_attributes,
+                    primary_colors: [nextColor],
+                  })
+                }}>
+                  {COLOR_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Fit">
+                <select className="input" value={draft.fit} onChange={(e) => handleDraftChange('fit', e.target.value)}>
+                  <option value="fitted">Fitted</option>
+                  <option value="regular">Regular</option>
+                  <option value="relaxed">Relaxed</option>
+                  <option value="oversized">Oversized</option>
+                </select>
+              </Field>
+              <Field label="Style">
+                <select className="input" value={draft.style} onChange={(e) => handleDraftChange('style', e.target.value)}>
+                  {STYLE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </Field>
+              <Field label="Aesthetic"><input {...text('aesthetic')} /></Field>
+              {mode === 'detailed' ? (
+                <>
+                  <Field label="Pattern"><input {...text('pattern')} /></Field>
+                  <Field label="Material"><input {...text('material')} /></Field>
+                  <Field label="Formality (0 to 1)"><input {...score('formality_estimate')} /></Field>
+                  <Field label="Visual weight (0 to 1)"><input {...score('visual_weight_estimate')} /></Field>
+                </>
+              ) : null}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" className="btn-secondary" onClick={closeForm}>Cancel</button>
+              <button type="button" className="btn-primary" onClick={handleSubmit}>Save garment</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <WardrobeGrid
+        garments={visibleGarments}
+        onSelect={onSelectGarment}
+        onEdit={(garment) => {
+          setEditingId(garment.id)
+          setDraft({
+            ...blankDraft,
+            ...garment,
+            visual_attributes: garment.visual_attributes || blankDraft.visual_attributes,
+            attributes: garment.attributes || blankDraft.attributes,
+            fit_and_proportions: garment.fit_and_proportions || blankDraft.fit_and_proportions,
+          })
+          setIsFormOpen(true)
+          setMode('detailed')
+        }}
+        onToggleAvailability={onToggleGarmentAvailability}
+        onDelete={onDeleteGarment}
+      />
+    </section>
+  )
 }
 
-export function outfitCompatibility(outfit) {
-  if (!Array.isArray(outfit) || outfit.length < 2) return 0.5
 
-  const pairScores = []
-  for (let i = 0; i < outfit.length; i += 1) {
-    for (let j = i + 1; j < outfit.length; j += 1) {
-      pairScores.push(pairCompatibility(outfit[i], outfit[j]))
+import { useState } from 'react'
+import { createDefaultProfile, normalizeProfile } from '../utils/bodyProfile.js'
+import PageHeader from '../components/PageHeader.jsx'
+
+function HelpPopover({ title, text }) {
+  const [isOpen, setIsOpen] = useState(false)
+
+  return (
+    <div className="group relative inline-flex">
+      <button
+        type="button"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold text-slate-600 transition hover:border-violet-400 hover:text-violet-700"
+        aria-label={title}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        onClick={() => setIsOpen((current) => !current)}
+        onBlur={() => setIsOpen(false)}
+        title={title}
+      >
+        ?
+      </button>
+      {isOpen ? (
+        <div role="dialog" aria-label={title} className="absolute left-0 top-7 z-20 w-64 rounded-xl border border-slate-200 bg-white p-2 text-left text-xs leading-snug text-slate-600 shadow-lg">
+          <p className="font-semibold text-slate-800">{title}</p>
+          <p className="mt-1">{text}</p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+const measurementLabels = {
+  shoulderWidth: 'Shoulder width',
+  chestCircumference: 'Chest circumference',
+  waistCircumference: 'Waist circumference',
+  hipCircumference: 'Hip circumference',
+  inseam: 'Inseam',
+  outseam: 'Outseam',
+  sleeveLength: 'Sleeve length',
+  armCircumference: 'Arm circumference',
+  thighCircumference: 'Thigh circumference',
+  neckCircumference: 'Neck circumference',
+}
+
+const measurementGuides = {
+  shoulderWidth: { label: 'Shoulder width', image: '/images/measurement-guides/shoulder.svg', tip: 'Measure straight across your upper back from shoulder bone to shoulder bone.' },
+  chestCircumference: { label: 'Chest circumference', image: '/images/measurement-guides/chest.svg', tip: 'Wrap the tape around the fullest part of the chest, keeping it level under your arms.' },
+  waistCircumference: { label: 'Waist circumference', image: '/images/measurement-guides/waist.svg', tip: 'Measure around the natural waist, usually the narrowest part of your torso.' },
+  hipCircumference: { label: 'Hip circumference', image: '/images/measurement-guides/hip.svg', tip: 'Measure around the fullest part of your hips and seat, standing naturally.' },
+  inseam: { label: 'Inseam', image: '/images/measurement-guides/inseam.svg', tip: 'Measure from the crotch seam to the bottom of the ankle, keeping the leg straight.' },
+  outseam: { label: 'Outseam', image: '/images/measurement-guides/inseam.svg', tip: 'Measure from the waistband to the floor or hem at the outside of the leg.' },
+  sleeveLength: { label: 'Sleeve length', image: '/images/measurement-guides/sleeve.svg', tip: 'Measure from the shoulder edge down to the wrist bone with the arm relaxed.' },
+  armCircumference: { label: 'Arm circumference', image: '/images/measurement-guides/sleeve.svg', tip: 'Measure around the fullest part of the upper arm, relaxed but not tucked in.' },
+  thighCircumference: { label: 'Thigh circumference', image: '/images/measurement-guides/inseam.svg', tip: 'Measure around the fullest part of the upper thigh, standing with weight even.' },
+  neckCircumference: { label: 'Neck circumference', image: '/images/measurement-guides/shoulder.svg', tip: 'Wrap the tape around the base of the neck, keeping it comfortable and level.' },
+}
+
+export default function MyProfile({ profile, onProfileChange, onClearProfile, onSaveProfile }) {
+  const current = normalizeProfile(profile || createDefaultProfile())
+  const measurements = Array.isArray(current.measurements) ? current.measurements : []
+  const updateField = (field, value) => onProfileChange(normalizeProfile({ ...current, [field]: value }))
+
+  const updateMeasurement = (index, field, value) => {
+    const next = [...measurements]
+    next[index] = { ...next[index], [field]: value }
+    onProfileChange(normalizeProfile({ ...current, measurements: next }))
+  }
+
+  const addMeasurement = () => {
+    onProfileChange(normalizeProfile({
+      ...current,
+      measurements: [...measurements, { name: 'chestCircumference', value: '', unit: 'cm', notes: '', confidence: 'estimated' }],
+    }))
+  }
+
+  const removeMeasurement = (index) => {
+    onProfileChange(normalizeProfile({ ...current, measurements: measurements.filter((_, i) => i !== index) }))
+  }
+
+  const getGuide = (name) => measurementGuides[name] || measurementGuides.chestCircumference
+
+  return (
+    <section className="space-y-6">
+      <PageHeader eyebrow="My profile" title="Body profile">
+        <button type="button" className="btn-secondary" onClick={onClearProfile}>Clear profile</button>
+        <button type="button" className="btn-primary" onClick={onSaveProfile}>Save profile</button>
+      </PageHeader>
+
+      <div className="grid items-start gap-5 lg:grid-cols-2">
+        <div className="settings-card space-y-4">
+          <h3 className="text-lg font-semibold">Basic body information</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="field">
+              Height
+              <input className="input" type="number" value={current.height ?? ''} onChange={(e) => updateField('height', Number(e.target.value) || null)} placeholder="170" />
+            </label>
+            <label className="field">
+              Height unit
+              <select className="input" value={current.heightUnit || 'cm'} onChange={(e) => updateField('heightUnit', e.target.value)}>
+                <option value="cm">Centimetres</option>
+                <option value="in">Feet/inches</option>
+              </select>
+            </label>
+            <label className="field">
+              Weight
+              <input className="input" type="number" value={current.weight ?? ''} onChange={(e) => updateField('weight', Number(e.target.value) || null)} placeholder="62" />
+            </label>
+            <label className="field">
+              Weight unit
+              <select className="input" value={current.weightUnit || 'kg'} onChange={(e) => updateField('weightUnit', e.target.value)}>
+                <option value="kg">Kilograms</option>
+                <option value="lb">Pounds</option>
+              </select>
+            </label>
+            <label className="field sm:col-span-2">
+              Fit notes
+              <textarea className="input" rows="3" value={current.fitNotes || ''} onChange={(e) => updateField('fitNotes', e.target.value)} />
+            </label>
+          </div>
+        </div>
+
+        <div className="settings-card space-y-4">
+          <h3 className="text-lg font-semibold">Fit preferences</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="field">
+              <span className="flex items-center gap-2">
+                <span>Tops fit</span>
+                <HelpPopover title="Tops fit" text="This is how you usually like your shirts, knitwear, and jackets to sit on the body: fitted, regular, relaxed, or oversized." />
+              </span>
+              <select className="input" value={current.fitPreferences?.tops || 'regular'} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, tops: e.target.value })}>
+                <option value="fitted">Fitted</option>
+                <option value="slim">Slim</option>
+                <option value="regular">Regular</option>
+                <option value="relaxed">Relaxed</option>
+                <option value="oversized">Oversized</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="flex items-center gap-2">
+                <span>Bottoms fit</span>
+                <HelpPopover title="Bottoms fit" text="Use this to describe how your trousers, jeans, and skirts usually sit around the hips, thighs, and leg shape." />
+              </span>
+              <select className="input" value={current.fitPreferences?.bottoms || 'straight'} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, bottoms: e.target.value })}>
+                <option value="slim">Slim</option>
+                <option value="straight">Straight</option>
+                <option value="relaxed">Relaxed</option>
+                <option value="wide-leg">Wide-leg</option>
+                <option value="oversized">Oversized</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="flex items-center gap-2">
+                <span>Upper-body volume</span>
+                <HelpPopover title="Upper-body volume" text="Think about how roomy your shoulders, chest, and sleeves feel. 'Balanced' usually means easy and polished; 'relaxed' means more ease and space." />
+              </span>
+              <input className="input" value={current.fitPreferences?.upperBodyVolume || ''} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, upperBodyVolume: e.target.value })} />
+            </label>
+            <label className="field">
+              <span className="flex items-center gap-2">
+                <span>Lower-body volume</span>
+                <HelpPopover title="Lower-body volume" text="This describes how roomy your hips, thighs, and legs feel. It helps the app compare your preferred silhouette to the garments you own." />
+              </span>
+              <input className="input" value={current.fitPreferences?.lowerBodyVolume || ''} onChange={(e) => updateField('fitPreferences', { ...current.fitPreferences, lowerBodyVolume: e.target.value })} />
+            </label>
+          </div>
+        </div>
+
+        <div className="settings-card space-y-4 lg:col-span-2">
+          <h3 className="text-lg font-semibold">Body proportions</h3>
+          <div className="flex flex-wrap gap-2">
+            {['Longer torso', 'Shorter torso', 'Longer legs', 'Shorter legs', 'Broad shoulders', 'Narrow shoulders'].map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={current.proportions?.includes(option) ? 'pill active' : 'pill'}
+                onClick={() => {
+                  const selected = current.proportions || []
+                  updateField('proportions', selected.includes(option) ? selected.filter((entry) => entry !== option) : [...selected, option])
+                }}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="settings-card space-y-4 lg:col-span-2">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold">Body measurements</h3>
+              <p className="mt-1 max-w-prose text-sm text-slate-600">
+                Use a soft tape, stand tall, and keep it snug but not tight. Measure in a relaxed posture for the most wearable fit.
+              </p>
+            </div>
+            <button type="button" className="btn-primary" onClick={addMeasurement}>Add measurement</button>
+          </div>
+
+          {measurements.length === 0 ? <p className="text-sm text-slate-500">No measurements recorded yet.</p> : null}
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            {measurements.map((measurement, index) => {
+              const guide = getGuide(measurement.name)
+              return (
+                <div key={`${measurement.name || 'measurement'}-${index}`} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center gap-3">
+                    <img src={guide.image} alt={guide.label} className="h-14 w-14 shrink-0 rounded-lg bg-white object-contain p-1 ring-1 ring-slate-200" />
+                    <div className="min-w-0">
+                      <p className="font-semibold">{guide.label}</p>
+                      <p className="text-xs leading-snug text-slate-600">{guide.tip}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-[1fr_90px_80px] gap-2">
+                    <select className="input" value={measurement.name || 'chestCircumference'} onChange={(e) => updateMeasurement(index, 'name', e.target.value)}>
+                      {Object.entries(measurementLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                    </select>
+                    <input className="input" type="number" value={measurement.value ?? ''} onChange={(e) => updateMeasurement(index, 'value', Number(e.target.value) || null)} placeholder="0" />
+                    <select className="input" value={measurement.unit || 'cm'} onChange={(e) => updateMeasurement(index, 'unit', e.target.value)}>
+                      <option value="cm">cm</option>
+                      <option value="in">in</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-[150px_1fr_auto] gap-2">
+                    <input className="input" type="date" value={measurement.date || ''} onChange={(e) => updateMeasurement(index, 'date', e.target.value)} />
+                    <input className="input" type="text" value={measurement.notes || ''} onChange={(e) => updateMeasurement(index, 'notes', e.target.value)} placeholder="Notes" />
+                    <button type="button" className="btn-secondary" onClick={() => removeMeasurement(index)}>Remove</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+import GarmentCard from './GarmentCard.jsx'
+
+export default function WardrobeGrid({ garments, onSelect, onEdit, onToggleAvailability, onDelete }) {
+  if (!garments.length) {
+    return (
+      <div className="card py-12 text-center">
+        <p className="font-semibold">No garments match these filters</p>
+        <p className="mt-1 text-sm text-slate-500">Clear the search or add something to your closet.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-3 max-[380px]:grid-cols-1 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4">
+      {garments.map((garment) => (
+        <GarmentCard
+          key={garment.id}
+          garment={garment}
+          onSelect={onSelect}
+          onEdit={onEdit}
+          onToggleAvailability={onToggleAvailability}
+          onDelete={onDelete}
+        />
+      ))}
+    </div>
+  )
+}
+
+export default function PreferenceSettings({ preferences, onChange }) {
+  const update = (field, value) => onChange({ ...preferences, [field]: value })
+  const toList = (text) => text.split(',').map((entry) => entry.trim()).filter(Boolean)
+
+  return (
+    <div className="settings-card space-y-4">
+      <h3 className="text-lg font-semibold">Preference tuning</h3>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="field">
+          Preferred styles
+          <input
+            className="input"
+            type="text"
+            value={preferences.styles?.join(', ') || 'minimal'}
+            onChange={(event) => update('styles', toList(event.target.value))}
+          />
+          <span className="text-xs font-normal text-slate-500">Separate with commas</span>
+        </label>
+        <label className="field">
+          Favorite colors
+          <input
+            className="input"
+            type="text"
+            value={preferences.colors?.join(', ') || 'ivory, navy'}
+            onChange={(event) => update('colors', toList(event.target.value))}
+          />
+          <span className="text-xs font-normal text-slate-500">Separate with commas</span>
+        </label>
+        <label className="field sm:col-span-2">
+          <span className="flex justify-between">
+            Formality bias <span className="text-slate-500">{preferences.formalityBias || 3} of 5</span>
+          </span>
+          <input
+            type="range"
+            min="1"
+            max="5"
+            className="w-full accent-accent"
+            value={preferences.formalityBias || 3}
+            onChange={(event) => update('formalityBias', Number(event.target.value))}
+          />
+          <span className="flex justify-between text-xs font-normal text-slate-500"><span>Relaxed</span><span>Dressy</span></span>
+        </label>
+      </div>
+    </div>
+  )
+}
+
+
+export default function PreferenceSettings({ preferences, onChange }) {
+  const update = (field, value) => onChange({ ...preferences, [field]: value })
+  const toList = (text) => text.split(',').map((entry) => entry.trim()).filter(Boolean)
+
+  return (
+    <div className="settings-card space-y-4">
+      <h3 className="text-lg font-semibold">Preference tuning</h3>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="field">
+          Preferred styles
+          <input
+            className="input"
+            type="text"
+            value={preferences.styles?.join(', ') || 'minimal'}
+            onChange={(event) => update('styles', toList(event.target.value))}
+          />
+          <span className="text-xs font-normal text-slate-500">Separate with commas</span>
+        </label>
+        <label className="field">
+          Favorite colors
+          <input
+            className="input"
+            type="text"
+            value={preferences.colors?.join(', ') || 'ivory, navy'}
+            onChange={(event) => update('colors', toList(event.target.value))}
+          />
+          <span className="text-xs font-normal text-slate-500">Separate with commas</span>
+        </label>
+        <label className="field sm:col-span-2">
+          <span className="flex justify-between">
+            Formality bias <span className="text-slate-500">{preferences.formalityBias || 3} of 5</span>
+          </span>
+          <input
+            type="range"
+            min="1"
+            max="5"
+            className="w-full accent-accent"
+            value={preferences.formalityBias || 3}
+            onChange={(event) => update('formalityBias', Number(event.target.value))}
+          />
+          <span className="flex justify-between text-xs font-normal text-slate-500"><span>Relaxed</span><span>Dressy</span></span>
+        </label>
+      </div>
+    </div>
+  )
+}
+
+export default function OutfitDetails({ outfit, score, breakdown }) {
+  return (
+    <div className="outfit-details">
+      <h4>Scoring breakdown</h4>
+      <ul>
+        <li>Harmony: {Math.round((breakdown.compatibility || 0) * 100)}%</li>
+        <li>Style match: {Math.round((breakdown.style || 0) * 100)}%</li>
+        <li>Context fit: {Math.round((breakdown.context || 0) * 100)}%</li>
+        <li>Personal fit: {Math.round((breakdown.preference || 0) * 100)}%</li>
+        <li>Novelty: {Math.round((breakdown.novelty || 0) * 100)}%</li>
+      </ul>
+      <strong>Overall: {Math.round(score * 100)}%</strong>
+    </div>
+  )
+}
+
+import { buildExplanation } from '../engine/explanation.js'
+import { getCategoryFamily } from '../utils/garmentHelpers.js'
+import { getTemplate } from '../data/outfitTemplates.js'
+import { mediaUrl } from '../utils/api.js'
+import { useResolvedImageSource } from '../utils/imageCache.js'
+
+function OutfitTile({ item, swatch }) {
+  const imageSrc = useResolvedImageSource(item.image_path ? mediaUrl(item.image_path) : null)
+
+  return (
+    <div className="relative aspect-[1.15/1] overflow-hidden rounded-[17px] bg-white" title={item.name}>
+      {item.image_path ? <img src={imageSrc} alt={item.name} loading="lazy" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0" style={{ background: `linear-gradient(145deg, ${swatch}, color-mix(in srgb, ${swatch} 75%, #352631))` }} />}
+      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent px-2 pb-2 pt-5 text-[9px] font-semibold uppercase tracking-[0.13em] text-white">{getCategoryFamily(item.category)}</span>
+    </div>
+  )
+}
+
+export default function OutfitCard({ outfit, score, breakdown, onSave, templates = [], featured = false }) {
+  const swatches = outfit.map((item) => item.hex || item.visual_attributes?.primary_colors?.[0] || item.color || '#dfeaf6')
+
+  return (
+    <article className={`overflow-hidden rounded-[24px] border border-[#e8e2dc] bg-white shadow-[0_10px_30px_rgba(42,31,35,0.055)] ${featured ? 'ring-1 ring-white' : ''}`}>
+      <div className="grid grid-cols-3 gap-1.5 bg-[#f3efeb] p-1.5">
+        {outfit.map((item, index) => (
+          <OutfitTile key={item.id} item={item} swatch={swatches[index]} />
+        ))}
+      </div>
+
+      <div className="flex items-start justify-between gap-3 p-4 sm:p-5">
+        <div className="min-w-0">
+          <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight text-ink">{outfit.map((item) => item.name).join(' + ')}</h3>
+          {templates.length ? <div className="mt-2 flex flex-wrap gap-1">{templates.map((id) => getTemplate(id)?.label).filter(Boolean).map((label) => <span key={label} className="rounded-full bg-[#f3e9ec] px-2.5 py-1 text-[10px] font-semibold text-accent">{label}</span>)}</div> : null}
+          <p className="mt-2 text-xs leading-5 text-slate-500 sm:text-sm">{buildExplanation(outfit, breakdown)}</p>
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-2.5">
+          <div className="rounded-xl bg-[#f7f4f0] px-2.5 py-1.5 text-right leading-none">
+            <div className="text-xl font-semibold tracking-tight text-ink">{Math.round(score * 100)}%</div>
+            <small className="mt-1 block text-[9px] font-semibold uppercase tracking-[0.13em] text-slate-400">match</small>
+          </div>
+          <button
+            type="button"
+            onClick={onSave}
+            className="grid h-10 w-10 place-items-center rounded-full border border-[#e8e2dc] bg-white text-accent transition hover:bg-[#f7f0f2] focus-visible:outline-2 focus-visible:outline-accent"
+            aria-label="Save outfit"
+            title="Save outfit"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M6 4.8c0-1 .8-1.8 1.8-1.8h8.4c1 0 1.8.8 1.8 1.8V21l-6-4-6 4V4.8Z" /></svg>
+          </button>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+
+import { useState } from 'react'
+import { aestheticOptions } from '../data/aesthetics.js'
+
+const palette = [
+    ['ivory', '#f4f1e8'], ['white', '#ffffff'], ['black', '#17161d'], ['grey', '#8b8e94'],
+    ['navy', '#1f2f4a'], ['blue', '#4a7fc1'], ['beige', '#cdb99a'], ['brown', '#6b4a32'],
+    ['olive', '#6b7340'], ['green', '#2f6b4f'], ['burgundy', '#7a2236'], ['yellow', '#e8c547'],
+]
+
+const formalityLabels = ['Very relaxed', 'Easygoing', 'Balanced', 'Polished', 'Dressy']
+
+export default function Onboarding({ name, initialPreferences, initialAesthetic, onFinish, onSkip }) {
+    const [step, setStep] = useState(0)
+    const [aesthetic, setAesthetic] = useState(initialAesthetic || aestheticOptions[0]?.id)
+    const [colors, setColors] = useState(initialPreferences?.colors || [])
+    const [formality, setFormality] = useState(initialPreferences?.formalityBias || 3)
+    const total = 3
+
+    const toggleColor = (color) => {
+        setColors((current) => (
+            current.includes(color) ? current.filter((entry) => entry !== color) : [...current, color]
+        ))
     }
-  }
 
-  const pairAverage = pairScores.length
-    ? pairScores.reduce((sum, score) => sum + score, 0) / pairScores.length
-    : 0.5
+    const finish = () => {
+        onFinish({
+            aesthetic,
+            preferences: {
+                ...initialPreferences,
+                styles: [aesthetic],
+                colors: colors.length ? colors : initialPreferences?.colors,
+                formalityBias: formality,
+            },
+        })
+    }
 
-  const global = globalOutfitScore(outfit)
-  const final = 0.7 * pairAverage + 0.3 * global
-  return Number(Math.min(Math.max(final, 0), 1).toFixed(3))
-}
+    return (
+        <div className="flex min-h-dvh items-center justify-center bg-[#f8f6f2] p-3 sm:p-5">
+            <div className="w-full max-w-xl space-y-5 rounded-[26px] border border-[#e8e2dc] bg-[#fffdfa] p-5 shadow-[0_16px_45px_rgba(42,31,35,0.07)] sm:space-y-6 sm:p-8">
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                        <p className="font-semibold text-accent">Step {step + 1} of {total}</p>
+                        <button type="button" className="min-h-10 px-2 text-slate-500 hover:text-slate-800" onClick={onSkip}>Skip for now</button>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuemin={1} aria-valuemax={total} aria-valuenow={step + 1}>
+                        <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${((step + 1) / total) * 100}%` }} />
+                    </div>
+                </div>
 
-//pairCompatibility
+                {step === 0 ? (
+                    <section className="space-y-4">
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-xl font-semibold leading-snug tracking-tight text-ink sm:text-2xl">{name ? `Nice to meet you, ${name}.` : 'Nice to meet you.'} What’s your style?</h2>
+                                <button
+                                    type="button"
+                                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold text-slate-600"
+                                    aria-label="Style helps the app suggest outfits that feel like you."
+                                    title="Style helps the app suggest outfits that feel like you."
+                                >
+                                    ?
+                                </button>
+                            </div>
+                            <p className="mt-1 text-slate-600">Pick the look you reach for most. Outfits that match it get a boost.</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {aestheticOptions.map((option) => (
+                                <button
+                                    key={option.id}
+                                    type="button"
+                                    aria-pressed={aesthetic === option.id}
+                                    className={aesthetic === option.id ? 'pill active' : 'pill'}
+                                    onClick={() => setAesthetic(option.id)}
+                                >
+                                    {option.label}
+                                </button>
+                            ))}
+                        </div>
+                    </section>
+                ) : null}
 
-import { scoringConfig } from '../data/scoringConfig.js'
-import { colorCompatibility } from './colorCompatibility.js'
+                {step === 1 ? (
+                    <section className="space-y-4">
+                        <div>
+                            <h2 className="text-xl font-semibold tracking-tight text-ink sm:text-2xl">Which colors do you love wearing?</h2>
+                            <p className="mt-1 text-slate-600">Choose as many as you like.</p>
+                        </div>
+                            <div className="grid grid-cols-2 gap-2 min-[390px]:grid-cols-3 sm:grid-cols-4">
+                            {palette.map(([label, hex]) => {
+                                const active = colors.includes(label)
+                                return (
+                                    <button
+                                        key={label}
+                                        type="button"
+                                        aria-pressed={active}
+                                        onClick={() => toggleColor(label)}
+                                        className={`flex min-h-11 items-center gap-2 rounded-xl border p-2.5 text-sm font-medium capitalize transition ${active ? 'border-accent bg-accent-soft' : 'border-[#e8e2dc] hover:bg-slate-50'}`}
+                                    >
+                                        <span className="h-5 w-5 shrink-0 rounded-full ring-1 ring-slate-300" style={{ background: hex }} />
+                                        {label}
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    </section>
+                ) : null}
 
-function garmentFormality(item) {
-  const formality = item?.attributes?.formality_estimate ?? item?.formality ?? item?.attributes?.formality
-  if (typeof formality === 'number') return Math.max(0, Math.min(1, formality))
-  if (typeof item?.formality === 'number') return Math.max(0, Math.min(1, item.formality / 5))
-  return 0.5
-}
+                {step === 2 ? (
+                    <section className="space-y-4">
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-xl font-semibold tracking-tight text-ink sm:text-2xl">How dressed up do you like to be?</h2>
+                                <button
+                                    type="button"
+                                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold text-slate-600"
+                                    aria-label="Formality bias sets your default polish level for outfit suggestions."
+                                    title="Formality bias sets your default polish level for outfit suggestions."
+                                >
+                                    ?
+                                </button>
+                            </div>
+                            <p className="mt-1 text-slate-600">This is your everyday default. Context changes it for events.</p>
+                        </div>
+                        <input type="range" min="1" max="5" value={formality} onChange={(event) => setFormality(Number(event.target.value))} className="w-full accent-violet-600" aria-label="Formality bias" />
+                        <div className="flex justify-between text-xs text-slate-500"><span>Relaxed</span><span>Dressy</span></div>
+                        <p className="text-center text-lg font-semibold">{formalityLabels[formality - 1]}</p>
+                    </section>
+                ) : null}
 
-function patternOf(item) {
-  return item?.visual_attributes?.pattern || item?.pattern || 'solid'
-}
-
-function styleSet(item) {
-  const fromTags = item?.style_associations?.possible_aesthetics || item?.style_associations || []
-  if (Array.isArray(fromTags)) return new Set(fromTags.map(String))
-  if (fromTags && typeof fromTags === 'object') {
-    return new Set(Object.keys(fromTags))
-  }
-  const styleValue = item?.style || item?.aesthetic || ''
-  return styleValue ? new Set([styleValue]) : new Set()
-}
-
-function jaccard(setA, setB) {
-  const union = new Set([...setA, ...setB])
-  if (!union.size) return 0.5
-  const intersection = [...union].filter((value) => setA.has(value) && setB.has(value)).length
-  return intersection / union.size
-}
-
-export function pairCompatibility(a, b) {
-  if (!a || !b) return scoringConfig.neutralScore
-
-  const styleScore = jaccard(styleSet(a), styleSet(b))
-  const colorScore = colorCompatibility(a, b)
-  const patternTable = scoringConfig.patternCompatibilityTable || {}
-  const patternA = patternOf(a)
-  const patternB = patternOf(b)
-  const patternScore = patternTable[patternA]?.[patternB] ?? scoringConfig.neutralScore
-  const formalityScore = 1 - Math.abs(garmentFormality(a) - garmentFormality(b))
-
-  const weights = scoringConfig.pairwiseWeights
-  const numerator =
-    colorScore * weights.color +
-    patternScore * weights.pattern +
-    formalityScore * weights.formality +
-    styleScore * weights.style
-
-  const total = Object.values(weights).reduce((sum, value) => sum + value, 0)
-  return Number((numerator / total).toFixed(3))
-}
-
-
-//personalPreference.js
-
-export function personalPreference(outfit, preferences = {}) {
-  if (!Array.isArray(outfit) || outfit.length === 0) return 0.5
-
-  const preferredStyles = (preferences.styles || []).map((style) => String(style).toLowerCase())
-  const preferredColors = (preferences.colors || []).map((color) => String(color).toLowerCase())
-  const preferredMaterials = (preferences.materials || []).map((material) => String(material).toLowerCase())
-  const excludedColors = (preferences.excludedColors || []).map((color) => String(color).toLowerCase())
-  const formalityBias = Number(preferences.formalityBias || 3)
-
-  const itemScores = outfit.map((item) => {
-    const primaryColors = item?.visual_attributes?.primary_colors || [item?.color || '']
-    const styleTags = item?.style_associations?.possible_aesthetics || [item?.style || '']
-    const material = item?.material?.primary || item?.material || ''
-    const itemFormality = item?.attributes?.formality_estimate ?? item?.formality ?? 0.5
-
-    let score = 0.5
-
-    if (preferredStyles.length && styleTags.some((tag) => preferredStyles.includes(String(tag).toLowerCase()))) score += 0.25
-    if (preferredColors.length && primaryColors.some((color) => preferredColors.includes(String(color).toLowerCase()))) score += 0.25
-    if (preferredMaterials.length && preferredMaterials.includes(String(material).toLowerCase())) score += 0.2
-    if (itemFormality <= formalityBias / 5) score += 0.1
-
-    if (excludedColors.length && primaryColors.some((color) => excludedColors.includes(String(color).toLowerCase()))) score -= 0.4
-
-    return Math.min(Math.max(score, 0), 1)
-  })
-
-  const average = itemScores.reduce((sum, value) => sum + value, 0) / itemScores.length
-  return Number(Math.min(Math.max(average, 0), 1).toFixed(3))
-}
-
-//ranker.js
-
-import { scoringConfig } from '../data/scoringConfig.js'
-import { buildFitCompatibility } from '../utils/bodyProfile.js'
-import { contextMatch } from './contextMatch.js'
-import { novelty } from './novelty.js'
-import { outfitCompatibility } from './outfitCompatibility.js'
-import { personalPreference } from './personalPreference.js'
-import { silhouettePreferenceScore } from './silhouette.js'
-import { styleMatch } from './styleMatch.js'
-
-export function rankOutfit(outfit, context = 'casual', preferences = {}, history = [], profile = null) {
-  const compatibility = outfitCompatibility(outfit)
-  const requestedAesthetic = preferences.aesthetic || preferences.favoriteAesthetic || null
-  const aesthetic = requestedAesthetic ? styleMatch(outfit, requestedAesthetic) : 0.5
-  const contextScore = contextMatch(outfit, context)
-  const personal = personalPreference(outfit, preferences)
-  const silhouette = silhouettePreferenceScore(outfit, preferences)
-  const noveltyScore = novelty(outfit, history)
-  const fitScore = profile ? buildFitCompatibility(outfit, profile) : null
-
-  const baseWeights = { ...scoringConfig.mainWeights }
-  if (fitScore !== null) {
-    baseWeights.fit = 0.09
-  }
-  const baseTotal = Object.values(baseWeights).reduce((sum, value) => sum + value, 0)
-
-  const weightEntries = [
-    ['compatibility', baseWeights.compatibility],
-    ['context', baseWeights.context],
-    ['personal', baseWeights.personal],
-    ['silhouette', baseWeights.silhouette],
-    ['novelty', baseWeights.novelty],
-  ]
-
-  if (requestedAesthetic) {
-    weightEntries.push(['aesthetic', baseWeights.aesthetic])
-  }
-  if (fitScore !== null) {
-    weightEntries.push(['fit', baseWeights.fit])
-  }
-
-  let score =
-    compatibility * baseWeights.compatibility +
-    contextScore * baseWeights.context +
-    personal * baseWeights.personal +
-    silhouette * baseWeights.silhouette +
-    noveltyScore * baseWeights.novelty
-
-  if (requestedAesthetic) {
-    score += aesthetic * baseWeights.aesthetic
-  }
-
-  if (fitScore !== null) {
-    score += fitScore * baseWeights.fit
-  }
-
-  const adjustedScore = requestedAesthetic ? score : score / (baseTotal - (requestedAesthetic ? baseWeights.aesthetic : 0)) * baseTotal
-  const finalScore = Number(Math.min(Math.max(adjustedScore + noveltyScore * 0.03, 0), 1.2).toFixed(3))
-
-  return {
-    score: finalScore,
-    breakdown: {
-      compatibility,
-      aesthetic: requestedAesthetic ? aesthetic : 0,
-      context: contextScore,
-      personal,
-      silhouette,
-      novelty: noveltyScore,
-      fit: fitScore ?? 0.5,
-    },
-    evidenceCoverage: fitScore === null ? 0.8 : 0.9,
-    weights: weightEntries,
-  }
-}
-
-//silhouette.js
-const volumeMap = { low: 0.2, medium: 0.5, high: 0.8, regular: 0.5, uncertain: 0.5 }
-const lengthMap = { cropped: 0.2, short: 0.35, regular: 0.5, long: 0.75, extra_long: 0.9, uncertain: 0.5 }
-
-function getVolume(item) {
-  const value = item?.fit_and_proportions?.relative_volume || item?.volume || item?.fit
-  return volumeMap[value] ?? 0.5
-}
-
-function getLength(item) {
-  const value = item?.fit_and_proportions?.relative_length || item?.length || 'regular'
-  return lengthMap[value] ?? 0.5
-}
-
-export function silhouetteAlignment(a, b) {
-  if (!a || !b) return 0.5
-
-  const volumeDiff = Math.abs(getVolume(a) - getVolume(b))
-  const lengthDiff = Math.abs(getLength(a) - getLength(b))
-  const volumeScore = 1 - volumeDiff
-  const lengthScore = 1 - lengthDiff
-
-  return Number(Math.min(Math.max((volumeScore + lengthScore) / 2, 0), 1).toFixed(3))
-}
-
-export function silhouettePreferenceScore(outfit, preferences = {}) {
-  if (!Array.isArray(outfit) || !outfit.length) return 0.5
-
-  const targetVolumeDifference = preferences.targetVolumeDifference ?? 0.1
-  const targetLengthDifference = preferences.targetLengthDifference ?? 0.1
-
-  const scores = outfit.map((item) => {
-    const top = item.category?.family === 'top' || item.category === 'top'
-    const bottom = item.category?.family === 'bottom' || item.category === 'bottom'
-    if (!top && !bottom) return 0.5
-
-    const volume = getVolume(item)
-    const length = getLength(item)
-    const ideal = top ? 1 - Math.abs(volume - 0.45) : 1 - Math.abs(volume - 0.5)
-    const lengthIdeal = 1 - Math.abs(length - (top ? 0.5 : 0.55))
-    return (ideal + lengthIdeal) / 2
-  })
-
-  const base = scores.reduce((sum, value) => sum + value, 0) / scores.length
-  return Number(Math.min(Math.max(base + targetVolumeDifference + targetLengthDifference - 0.2, 0), 1).toFixed(3))
-}
-
-//styleMatch.js
-export function styleMatch(outfit, aestheticPreference = 'minimal') {
-  if (!Array.isArray(outfit) || outfit.length === 0) return 0.5
-
-  const requested = String(aestheticPreference).toLowerCase()
-  const scores = outfit.map((item) => {
-    const tags = item?.style_associations?.possible_aesthetics || []
-    const normalized = tags.map((tag) => String(tag).toLowerCase())
-
-    if (!normalized.length) return 0.5
-    if (normalized.includes(requested)) return 1
-    if (normalized.some((tag) => tag.includes(requested))) return 0.8
-    return 0.55
-  })
-
-  return Number((scores.reduce((sum, value) => sum + value, 0) / scores.length).toFixed(3))
-}
-
-
-//validation.js
-
-function normalizeFamily(value) {
-  if (!value) return null
-  const family = String(value).toLowerCase()
-  if (family === 'shoe' || family === 'shoes' || family === 'footwear') return 'footwear'
-  return family
-}
-
-function familyOf(item) {
-  if (!item || typeof item !== 'object') return null
-  const direct = item.category?.family || item.category || item.type || null
-  return normalizeFamily(direct)
-}
-
-function normalizeLegacyGarment(item) {
-  if (!item || typeof item !== 'object') return null
-  if (Array.isArray(item)) return null
-
-  const categoryFamily = normalizeFamily(item.category?.family || item.category || familyOf(item) || 'unknown')
-  if (!item.id || !item.name || !categoryFamily) return null
-
-  return {
-    ...item,
-    category: item.category?.family ? { ...item.category, family: categoryFamily } : { family: categoryFamily, type: item.type || 'unknown', subtype: item.subtype || null },
-    status: item.status || 'available',
-    visual_attributes: item.visual_attributes || {
-      primary_colors: item.color ? [item.color] : [],
-      secondary_colors: [],
-      pattern: item.pattern || 'solid',
-      graphic_or_print: null,
-      texture: item.material || 'smooth',
-    },
-    attributes: item.attributes || {
-      formality_estimate: typeof item.formality === 'number' ? item.formality / 5 : 0.5,
-      visual_weight_estimate: 0.5,
-      seasonal_suitability: item.season ? [item.season] : [],
-      functional_tags: item.tags || [],
-    },
-    fit_and_proportions: item.fit_and_proportions || {
-      apparent_fit: item.fit || 'regular',
-      silhouette: item.silhouette || 'straight',
-      relative_length: 'regular',
-      relative_volume: 'medium',
-    },
-    style_associations: item.style_associations || {
-      possible_aesthetics: item.aesthetic ? [item.aesthetic] : item.style ? [item.style] : [],
-    },
-  }
-}
-
-export function validateGarment(item) {
-  const garment = normalizeLegacyGarment(item)
-  if (!garment) return false
-
-  const family = familyOf(garment)
-  if (!garment.id || !garment.name || !family) return false
-  if (garment.status === 'unavailable') return false
-  return true
-}
-
-export function validateOutfit(outfit) {
-  if (!Array.isArray(outfit) || outfit.length === 0) return false
-  const ids = new Set()
-
-  for (const item of outfit) {
-    const garment = normalizeLegacyGarment(item)
-    if (!garment || ids.has(garment.id)) return false
-    ids.add(garment.id)
-  }
-
-  const families = outfit.map((item) => familyOf(item) || item.category || '').filter(Boolean)
-  const hasTop = families.includes('top')
-  const hasBottom = families.includes('bottom')
-  return hasTop && hasBottom
-}
-
-export function normalizeGarments(items) {
-  const source = Array.isArray(items) ? items : items?.items || []
-  return source
-    .map((item) => normalizeLegacyGarment(item))
-    .filter(Boolean)
-    .filter((item) => item.status !== 'unavailable')
+                <div className="sticky bottom-0 -mx-5 -mb-5 flex items-center justify-between border-t border-[#eee8e2] bg-[#fffdfa]/95 px-5 py-4 backdrop-blur sm:static sm:mx-0 sm:mb-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pb-0">
+                    <button type="button" className="btn-secondary" disabled={step === 0} onClick={() => setStep((current) => current - 1)}>Back</button>
+                    {step < total - 1 ? (
+                        <button type="button" className="btn-primary" onClick={() => setStep((current) => current + 1)}>Next</button>
+                    ) : (
+                        <button type="button" className="btn-primary" onClick={finish}>Finish setup</button>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
 }

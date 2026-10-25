@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import OutfitCard from '../components/OutfitCard.jsx'
 import OutfitDetails from '../components/OutfitDetails.jsx'
+import { aestheticOptions } from '../data/aesthetics.js'
 
 const contextOptions = [
   ['casual', 'Everyday'],
@@ -9,8 +10,6 @@ const contextOptions = [
   ['cold', 'Cold day'],
   ['rainy', 'Rainy'],
 ]
-const aestheticOptions = ['minimal', 'classic', 'street']
-
 export default function Today({
   outfits,
   aestheticOutfits = [],
@@ -74,7 +73,7 @@ export default function Today({
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Aesthetic</p>
               <div className="flex flex-wrap gap-2">
-                {aestheticOptions.map((option) => <button key={option} type="button" aria-pressed={currentAesthetic === option} onClick={() => onAestheticChange?.(option)} className={`min-h-10 rounded-full border px-4 text-sm capitalize ${currentAesthetic === option ? 'border-accent bg-accent text-white' : 'border-[#e8e2dc] bg-white text-slate-700'}`}>{option}</button>)}
+                {aestheticOptions.map((option) => <button key={option.id} type="button" aria-pressed={currentAesthetic === option.id} onClick={() => onAestheticChange?.(option.id)} title={option.description} className={`min-h-10 rounded-full border px-4 text-sm ${currentAesthetic === option.id ? 'border-accent bg-accent text-white' : 'border-[#e8e2dc] bg-white text-slate-700'}`}>{option.label}</button>)}
               </div>
             </div>
             <label className="block">
@@ -92,7 +91,7 @@ export default function Today({
         </div>
         {primary ? <>
           <OutfitCard featured outfit={primary.outfit} score={primary.score} breakdown={primary.breakdown} templates={primary.templates} onSave={() => onSaveOutfit(primary)} />
-          <OutfitDetails outfit={primary.outfit} score={primary.score} breakdown={primary.breakdown} />
+          <OutfitDetails outfit={primary.outfit} breakdown={primary.breakdown} />
         </> : <div className="rounded-[24px] border border-dashed border-[#d9cec5] bg-white px-5 py-10 text-center">
           <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[#f3e9ec] text-xl text-accent">✦</span>
           <h3 className="mt-3 font-semibold text-ink">A look is waiting in your closet</h3>
