@@ -6,7 +6,11 @@ const API_BASE = (
 const MEDIA_BASE = API_BASE.replace(/\/api$/, "");
 export const mediaUrl = (path) => {
   if (!path || typeof path !== "string") return path;
-  if (/^(https?:)?\/\//.test(path) || path.startsWith("data:") || path.startsWith("blob:")) {
+  if (
+    /^(https?:)?\/\//.test(path) ||
+    path.startsWith("data:") ||
+    path.startsWith("blob:")
+  ) {
     return path;
   }
   return path.startsWith("/media/") ? `${MEDIA_BASE}${path}` : path;
@@ -32,7 +36,12 @@ const csrfToken = () => {
   return match ? decodeURIComponent(match[1]) : null;
 };
 
-const AUTH_PATHS = ["/auth/login", "/auth/register", "/auth/logout", "/auth/me"];
+const AUTH_PATHS = [
+  "/auth/login",
+  "/auth/register",
+  "/auth/logout",
+  "/auth/me",
+];
 
 export async function apiRequest(path, options = {}) {
   const { _sync, _noQueue, ...fetchOptions } = options;
@@ -60,7 +69,9 @@ export async function apiRequest(path, options = {}) {
 
   const queueIt = () => {
     const body =
-      typeof options.body === "string" ? JSON.parse(options.body) : options.body;
+      typeof options.body === "string"
+        ? JSON.parse(options.body)
+        : options.body;
     queuePendingOperation({
       path,
       method,

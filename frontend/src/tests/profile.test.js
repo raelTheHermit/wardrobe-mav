@@ -151,12 +151,18 @@ describe("body profile utilities", () => {
   });
 
   it("leaves absolute image URLs alone and updates a garment's uploaded image metadata without dropping the rest of the record", () => {
-    const cloudinaryUrl = "https://res.cloudinary.com/example/image/upload/v1/fitzii/garments/photo.jpg";
+    const cloudinaryUrl =
+      "https://res.cloudinary.com/example/image/upload/v1/fitzii/garments/photo.jpg";
     expect(mediaUrl(cloudinaryUrl)).toBe(cloudinaryUrl);
 
     const clothes = [
       { id: "g-1", name: "Blue tee", category: "top", status: "available" },
-      { id: "g-2", name: "Black jeans", category: "bottom", status: "available" },
+      {
+        id: "g-2",
+        name: "Black jeans",
+        category: "bottom",
+        status: "available",
+      },
     ];
 
     const next = upsertGarmentImage(clothes, "g-1", {
