@@ -51,6 +51,39 @@ export function createDefaultProfile(overrides = {}) {
   };
 }
 
+export function normalizeProfile(profile, fallback = createDefaultProfile()) {
+  if (!profile || typeof profile !== "object") return createDefaultProfile(fallback || {});
+
+  const merged = {
+    ...createDefaultProfile(),
+    ...fallback,
+    ...profile,
+  };
+
+  const rawMeasurements = profile.measurements;
+  const normalizedMeasurements = Array.isArray(rawMeasurements)
+    ? rawMeasurements
+    : Array.isArray(rawMeasurements?.items)
+      ? rawMeasurements.items
+      : [];
+
+  const normalizedFitPreferences =
+    profile.fitPreferences && typeof profile.fitPreferences === "object"
+      ? profile.fitPreferences
+      : {};
+
+  const normalizedProportions = Array.isArray(profile.proportions)
+    ? profile.proportions
+    : [];
+
+  return {
+    ...merged,
+    measurements: normalizedMeasurements,
+    proportions: normalizedProportions,
+    fitPreferences: normalizedFitPreferences,
+  };
+}
+
 function clamp(value, min = 0, max = 1) {
   return Math.min(Math.max(value, min), max);
 }

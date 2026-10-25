@@ -7,7 +7,7 @@ import Explore from './pages/Explore.jsx'
 import Preferences from './pages/Preferences.jsx'
 import MyProfile from './pages/MyProfile.jsx'
 import { loadFromStorage, saveToStorage, storageKeys } from './utils/storage.js'
-import { createDefaultProfile } from './utils/bodyProfile.js'
+import { createDefaultProfile, normalizeProfile } from './utils/bodyProfile.js'
 import { generateOutfits } from './engine/index.js'
 import guestWardrobeSeed from './data/guestWardrobe.json'
 import { exportWardrobePayload, importWardrobeRecords } from './utils/wardrobeStorage.js'
@@ -67,7 +67,7 @@ function App() {
     try {
       const syncResult = await loadUserSession(activeAccount)
       const wardrobe = Array.isArray(syncResult?.wardrobe) ? syncResult.wardrobe : loadFromStorage(storageKeys.wardrobe, guestWardrobeSeed)
-      const profile = syncResult?.profile && Object.keys(syncResult.profile).length ? syncResult.profile : loadFromStorage(storageKeys.profile, createDefaultProfile())
+      const profile = normalizeProfile(syncResult?.profile && Object.keys(syncResult.profile).length ? syncResult.profile : loadFromStorage(storageKeys.profile, createDefaultProfile()))
       const preferences = syncResult?.preferences && Object.keys(syncResult.preferences).length ? syncResult.preferences : loadFromStorage(storageKeys.preferences, defaultPreferences)
 
       setGarments(wardrobe)
@@ -141,7 +141,7 @@ function App() {
         })
 
         const wardrobe = Array.isArray(remoteData?.wardrobe) ? remoteData.wardrobe : localWardrobe
-        const profile = remoteData?.profile && Object.keys(remoteData.profile).length ? remoteData.profile : localProfile
+        const profile = normalizeProfile(remoteData?.profile && Object.keys(remoteData.profile).length ? remoteData.profile : localProfile)
         const preferences = remoteData?.preferences && Object.keys(remoteData.preferences).length ? remoteData.preferences : localPreferences
 
         setGarments(wardrobe)

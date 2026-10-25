@@ -3,6 +3,7 @@ import {
   buildFitCompatibility,
   convertMeasurementValue,
   createDefaultProfile,
+  normalizeProfile,
 } from "../utils/bodyProfile.js";
 import { loadProfile, saveProfile } from "../utils/wardrobeStorage.js";
 
@@ -23,6 +24,19 @@ describe("body profile utilities", () => {
     expect(loaded.height).toBe(170);
     expect(loaded.measurements).toEqual([]);
     expect(loaded.fitNotes).toBe("Tall torso");
+  });
+
+  it("normalizes legacy profile data where measurements is an object instead of an array", () => {
+    const normalized = normalizeProfile({
+      height: 170,
+      heightUnit: "cm",
+      measurements: { chest: 92, waist: 70 },
+      fitPreferences: { tops: "regular" },
+    });
+
+    expect(Array.isArray(normalized.measurements)).toBe(true);
+    expect(normalized.measurements).toEqual([]);
+    expect(normalized.fitPreferences).toEqual({ tops: "regular" });
   });
 
   it("does not penalize missing measurements when scoring fit", () => {

@@ -1,4 +1,4 @@
-import { createDefaultProfile } from '../utils/bodyProfile.js'
+import { createDefaultProfile, normalizeProfile } from '../utils/bodyProfile.js'
 import PageHeader from '../components/PageHeader.jsx'
 
 const measurementLabels = {
@@ -28,25 +28,25 @@ const measurementGuides = {
 }
 
 export default function MyProfile({ profile, onProfileChange, onClearProfile, onSaveProfile }) {
-  const current = profile || createDefaultProfile()
-  const measurements = current.measurements || []
-  const updateField = (field, value) => onProfileChange({ ...current, [field]: value })
+  const current = normalizeProfile(profile || createDefaultProfile())
+  const measurements = Array.isArray(current.measurements) ? current.measurements : []
+  const updateField = (field, value) => onProfileChange(normalizeProfile({ ...current, [field]: value }))
 
   const updateMeasurement = (index, field, value) => {
     const next = [...measurements]
     next[index] = { ...next[index], [field]: value }
-    onProfileChange({ ...current, measurements: next })
+    onProfileChange(normalizeProfile({ ...current, measurements: next }))
   }
 
   const addMeasurement = () => {
-    onProfileChange({
+    onProfileChange(normalizeProfile({
       ...current,
       measurements: [...measurements, { name: 'chestCircumference', value: '', unit: 'cm', notes: '', confidence: 'estimated' }],
-    })
+    }))
   }
 
   const removeMeasurement = (index) => {
-    onProfileChange({ ...current, measurements: measurements.filter((_, i) => i !== index) })
+    onProfileChange(normalizeProfile({ ...current, measurements: measurements.filter((_, i) => i !== index) }))
   }
 
   const getGuide = (name) => measurementGuides[name] || measurementGuides.chestCircumference
