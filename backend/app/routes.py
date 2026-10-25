@@ -13,7 +13,7 @@ from .models import Garment, OutfitHistory, Preferences, UserAccount, UserProfil
 
 try:
     import cloudinary
-    import cloudinary.uploader
+    from cloudinary import uploader as cloudinary_uploader
 except Exception:  # pragma: no cover - optional dependency until installed
     cloudinary = None
     cloudinary_uploader = None
