@@ -34,6 +34,18 @@ const navItems = [
   ['preferences', 'Preferences'],
 ]
 
+const navIcons = {
+  today: 'M3 10.5 12 3l9 7.5M5.5 9v11h13V9M9 20v-6h6v6',
+  wardrobe: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
+  explore: 'm12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3ZM19 15l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1 1-2.5Z',
+  profile: 'M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z',
+  preferences: 'M4 6h16M4 12h16M4 18h16M9 4v4m7 2v4m-5 2v4',
+}
+
+function NavIcon({ name }) {
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">{name === 'explore' ? <path d={navIcons[name]} fill="currentColor" stroke="none" /> : <path d={navIcons[name]} />}</svg>
+}
+
 function App() {
   const [garments, setGarments] = useState([])
   const [page, setPage] = useState('today')
@@ -482,7 +494,7 @@ function App() {
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[272px_1fr]">
-      <aside className="flex flex-col gap-5 border-b border-slate-200 bg-white p-5 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto lg:border-b-0 lg:border-r">
+      <aside className="hidden flex-col gap-5 border-r border-[#e8e2dc] bg-[#fffdfa] p-5 lg:sticky lg:top-0 lg:flex lg:h-screen lg:overflow-y-auto">
         <div>
           <p className="text-sm font-medium text-accent">Fitzii</p>
           <h1 className="text-2xl font-bold leading-tight tracking-tight">Dress with more ease</h1>
@@ -532,7 +544,20 @@ function App() {
         ) : null}
       </aside>
 
-      <main className="mx-auto w-full max-w-6xl space-y-6 p-5 sm:p-8">
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[#eee8e2] bg-[#f8f6f2]/95 px-4 py-3 backdrop-blur lg:hidden">
+        <button type="button" onClick={() => setPage('today')} className="flex min-h-11 items-center gap-2 text-left" aria-label="Fitzii home">
+          <span className="grid h-9 w-9 place-items-center rounded-2xl bg-accent text-sm font-bold text-white">f.</span>
+          <span><strong className="block text-sm leading-4">Fitzii</strong><small className="text-[11px] text-slate-500">Your personal stylist</small></span>
+        </button>
+        <div className="flex items-center gap-2">
+          {isOffline ? <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-900">Offline</span> : null}
+          <button type="button" onClick={account ? handleSignOut : () => setStage('auth')} className="grid h-10 w-10 place-items-center rounded-full border border-[#e8e2dc] bg-white text-sm font-bold text-accent" aria-label={account ? 'Log out' : 'Create account'}>
+            {(account?.name || 'G').trim().charAt(0).toUpperCase()}
+          </button>
+        </div>
+      </header>
+
+      <main className="page-bottom-safe mx-auto w-full max-w-6xl space-y-5 px-4 pt-4 sm:px-8 sm:pt-8 lg:space-y-6 lg:px-8 lg:pb-8">
         {!account ? (
           <div className="flex items-center justify-between gap-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
             <span>Guest mode is active. Your data stays in this browser.</span>
@@ -558,19 +583,15 @@ function App() {
 
         {page === 'today' ? (
           <>
-            <div className="rounded-2xl bg-ink p-6 text-white sm:p-8">
-              <p className="text-sm font-medium text-violet-300">Built for real life</p>
-              <h2 className="mt-1 max-w-2xl text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
-                Not everyone has the fashion sense to dress their best.
-              </h2>
-              <p className="mt-3 max-w-2xl text-slate-300">
-                So I built Fitzii for myself: a personal styling companion that turns my wardrobe into better decisions,
-                fewer random outfit guesses, and more confidence before I leave the house.
-              </p>
-              <div className="mt-5 flex flex-wrap gap-2">
-                {['Closet-aware', 'Body-aware', 'Offline-ready'].map((item) => (
-                  <span key={item} className="rounded-full bg-white/10 px-3 py-1 text-sm font-medium">{item}</span>
-                ))}
+            <div className="relative overflow-hidden rounded-[26px] bg-[#352631] px-5 py-5 text-white shadow-[0_15px_35px_rgba(53,38,49,0.14)] sm:px-7 sm:py-7">
+              <div className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full border border-white/10" />
+              <div className="pointer-events-none absolute -right-2 -top-7 h-32 w-32 rounded-full border border-white/10" />
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#e4bdc8]">A little help getting dressed</p>
+              <h2 className="mt-2 max-w-xl text-[1.75rem] font-semibold leading-tight tracking-[-0.04em] sm:text-3xl">Good to see you, {account?.name?.split(' ')[0] || 'there'}.</h2>
+              <p className="mt-2 max-w-lg text-sm leading-6 text-white/70">Let’s make something great from the clothes you already own.</p>
+              <div className="mt-4 flex flex-wrap gap-2 text-xs font-medium text-white/80">
+                <span className="rounded-full bg-white/10 px-3 py-1.5">{garments.length} pieces in your closet</span>
+                <span className="rounded-full bg-white/10 px-3 py-1.5">{savedOutfits.length} saved looks</span>
               </div>
             </div>
             <Today
@@ -637,6 +658,15 @@ function App() {
           />
         ) : null}
       </main>
+
+      <nav className="mobile-nav-safe fixed inset-x-0 bottom-0 z-40 border-t border-[#e8e2dc] bg-[#fffdfa]/95 px-2 pt-2 shadow-[0_-8px_28px_rgba(42,31,35,0.07)] backdrop-blur lg:hidden" aria-label="Main navigation">
+        <div className="mx-auto grid max-w-lg grid-cols-5">
+          {navItems.map(([key, label]) => <button key={key} type="button" onClick={() => setPage(key)} aria-current={page === key ? 'page' : undefined} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-semibold transition ${page === key ? 'text-accent' : 'text-slate-500'}`}>
+            <span className={`grid h-7 w-12 place-items-center rounded-full transition ${page === key ? 'bg-accent-soft' : ''}`}><NavIcon name={key} /></span>
+            {label === 'Preferences' ? 'Style' : label === 'Wardrobe' ? 'Closet' : label}
+          </button>)}
+        </div>
+      </nav>
 
     </div>
   )

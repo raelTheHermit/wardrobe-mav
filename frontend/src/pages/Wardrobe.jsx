@@ -176,15 +176,15 @@ export default function Wardrobe({ garments, onSelectGarment, onAddGarment, onUp
   return (
     <section className="space-y-6">
       <PageHeader eyebrow="Closet" title="Wardrobe overview">
-        <button type="button" className="btn-secondary" onClick={onExportWardrobe}>Export</button>
-        <label className="btn-secondary">
+        <button type="button" className="btn-secondary flex-1 sm:flex-none" onClick={onExportWardrobe}>Export</button>
+        <label className="btn-secondary flex-1 sm:flex-none">
           Import
           <input type="file" accept="application/json" className="sr-only" onChange={onImportWardrobe} />
         </label>
-        <button type="button" className="btn-primary" onClick={openNew}>+ Add clothing</button>
+        <button type="button" className="btn-primary w-full sm:w-auto" onClick={openNew}>+ Add clothing</button>
       </PageHeader>
 
-      <div className="card grid gap-3 !p-4 md:grid-cols-[1fr_200px_200px]">
+      <div className="grid gap-2 rounded-2xl border border-[#e8e2dc] bg-white p-3 shadow-[0_8px_28px_rgba(42,31,35,0.04)] sm:grid-cols-[1fr_160px_160px] sm:p-4">
         <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search garments" />
         <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="all">All availability</option>
@@ -202,8 +202,8 @@ export default function Wardrobe({ garments, onSelectGarment, onAddGarment, onUp
       </div>
 
       {isFormOpen ? (
-        <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center" onClick={closeForm}>
-          <div className="w-full max-w-3xl rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-[#211a20]/55 p-0 backdrop-blur-[2px] sm:items-center sm:p-4" onClick={closeForm}>
+          <div className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-t-[26px] bg-[#fffdfa] p-4 shadow-2xl sm:rounded-[26px] sm:p-6" onClick={(e) => e.stopPropagation()}>
             <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-accent">{editingId ? 'Edit clothing' : 'Add clothing'}</p>

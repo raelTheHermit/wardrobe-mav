@@ -131,11 +131,12 @@ export default function AuthFlow({ accounts = [], canClose = false, onSignUp, on
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-2">
-      <aside className="flex flex-col justify-between gap-10 bg-slate-950 p-8 text-white sm:p-12">
-        <p className="text-lg font-bold tracking-tight">Fitzii</p>
+      <aside className="relative flex flex-col justify-between gap-5 overflow-hidden bg-[#352631] px-6 py-6 text-white sm:gap-10 sm:px-12 sm:py-10">
+        <span aria-hidden="true" className="pointer-events-none absolute -right-12 -top-20 h-56 w-56 rounded-full border border-white/10" />
+        <p className="relative text-lg font-bold tracking-tight">fitzii<span className="text-[#e4bdc8]">.</span></p>
         <div className="space-y-6">
-          <h1 className="max-w-md text-4xl font-bold leading-tight tracking-tight">Get dressed with less guesswork.</h1>
-          <ul className="space-y-4">
+          <h1 className="relative max-w-md text-3xl font-semibold leading-tight tracking-[-0.04em] sm:text-4xl">Get dressed with less guesswork.</h1>
+          <ul className="hidden space-y-4 sm:block">
             {highlights.map(([title, text]) => (
               <li key={title}>
                 <p className="font-semibold">{title}</p>
@@ -147,7 +148,7 @@ export default function AuthFlow({ accounts = [], canClose = false, onSignUp, on
         <p className="hidden text-xs text-slate-400 lg:block">Your wardrobe stays on your device until you choose to sync it.</p>
       </aside>
 
-      <main className="flex items-center justify-center p-6 sm:p-12">
+      <main className="flex items-start justify-center px-5 py-7 sm:items-center sm:p-12">
         <div className="w-full max-w-sm space-y-6">
           {canClose ? (
             <button type="button" className="text-sm font-medium text-slate-500 hover:text-slate-800" onClick={onClose}>← Back to app</button>
