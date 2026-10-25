@@ -26,6 +26,9 @@ def create_app(test_config=None):
     cloud_name = os.getenv('CLOUDINARY_CLOUD_NAME')
     api_key = os.getenv('CLOUDINARY_API_KEY')
     api_secret = os.getenv('CLOUDINARY_API_SECRET')
+    media_dir = os.getenv('MEDIA_DIR', str(Path(__file__).resolve().parents[1] / 'media'))
+    if not os.path.isabs(media_dir):
+        media_dir = str((Path(__file__).resolve().parents[1] / media_dir).resolve())
 
     app.config.update(
         SQLALCHEMY_DATABASE_URI=db_url or 'sqlite:///:memory:',
@@ -36,7 +39,7 @@ def create_app(test_config=None):
         SESSION_COOKIE_SAMESITE=os.getenv('SESSION_COOKIE_SAMESITE', 'None'),
         SESSION_COOKIE_SECURE=os.getenv('SESSION_COOKIE_SECURE', 'true').lower() in {'1', 'true', 'yes', 'on'},
         SESSION_COOKIE_HTTPONLY=True,
-        MEDIA_DIR=os.getenv('MEDIA_DIR', str(Path(__file__).resolve().parents[1] / 'media')),
+        MEDIA_DIR=media_dir,
         MAX_CONTENT_LENGTH=int(os.getenv('MAX_UPLOAD_BYTES', 10 * 1024 * 1024)),
         USE_CLOUDINARY=bool(cloud_name and api_key and api_secret and cloudinary is not None),
     )

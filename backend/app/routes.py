@@ -140,16 +140,18 @@ def _save_uploaded_image(image, garment_id):
     image_hash = hashlib.sha256(payload).hexdigest()
 
     if current_app.config.get('USE_CLOUDINARY') and cloudinary is not None and cloudinary_uploader is not None:
-        result = cloudinary_uploader.upload(
-            payload,
-            folder='fitzii/garments',
-            public_id=f'{garment_id}-{uuid.uuid4().hex}',
-            resource_type='image',
-        )
-        image_url = result.get('secure_url') or result.get('url')
-        if not image_url:
-            raise ValueError('Cloudinary upload failed. Please check your credentials.')
-        return image_url, image_url, image_hash
+        try:
+            result = cloudinary_uploader.upload(
+                payload,
+                folder='fitzii/garments',
+                public_id=f'{garment_id}-{uuid.uuid4().hex}',
+                resource_type='image',
+            )
+            image_url = result.get('secure_url') or result.get('url')
+            if image_url:
+                return image_url, image_url, image_hash
+        except Exception:
+            current_app.logger.warning('Cloudinary upload failed; falling back to local media storage.', exc_info=True)
 
     safe = f'{uuid.uuid4().hex}.{ext}'
     target = Path(current_app.config['MEDIA_DIR']) / safe
