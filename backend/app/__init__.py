@@ -22,6 +22,11 @@ def create_app(test_config=None):
         SQLALCHEMY_DATABASE_URI=db_url or 'sqlite:///:memory:',
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         SECRET_KEY=os.getenv('FLASK_SECRET_KEY', 'development-only'),
+        # The production frontend and API are on different sites, so the browser must
+        # be allowed to send the session cookie on credentialed cross-origin requests.
+        SESSION_COOKIE_SAMESITE=os.getenv('SESSION_COOKIE_SAMESITE', 'None'),
+        SESSION_COOKIE_SECURE=os.getenv('SESSION_COOKIE_SECURE', 'true').lower() in {'1', 'true', 'yes', 'on'},
+        SESSION_COOKIE_HTTPONLY=True,
         MEDIA_DIR=os.getenv('MEDIA_DIR', str(Path(__file__).resolve().parents[1] / 'media')),
         MAX_CONTENT_LENGTH=int(os.getenv('MAX_UPLOAD_BYTES', 10 * 1024 * 1024)),
     )

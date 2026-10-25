@@ -249,6 +249,7 @@ function App() {
       return true
     } catch (error) {
       console.warn('Backend account creation failed, falling back to local storage.', error)
+      if (Number(error?.status) > 0) throw error
     }
 
     const localAccount = {

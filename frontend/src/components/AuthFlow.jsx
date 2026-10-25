@@ -46,7 +46,7 @@ export default function AuthFlow({ accounts = [], canClose = false, onSignUp, on
     }
   }
 
-  const submitSignUp = (event) => {
+  const submitSignUp = async (event) => {
     event.preventDefault()
     const next = {}
 
@@ -59,7 +59,12 @@ export default function AuthFlow({ accounts = [], canClose = false, onSignUp, on
 
     setErrors(next)
     if (!Object.keys(next).length) {
-      onSignUp({ name: form.name.trim(), username: form.username.trim(), password: form.password })
+      try {
+        await onSignUp({ name: form.name.trim(), username: form.username.trim(), password: form.password })
+      } catch (error) {
+        const message = error?.message || 'Account creation failed. Please try again.'
+        setErrors({ username: error?.status === 409 ? 'That username is already taken. Sign in or choose another username.' : message })
+      }
     }
   }
 
