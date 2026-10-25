@@ -11,6 +11,7 @@ import {
   saveProfile,
   upsertGarmentImage,
 } from "../utils/wardrobeStorage.js";
+import { resolveImageSource } from "../utils/imageCache.js";
 
 describe("body profile utilities", () => {
   it("converts centimetres to inches correctly", () => {
@@ -173,5 +174,18 @@ describe("body profile utilities", () => {
     expect(next[0].image_path).toBe("/media/generated-image.jpg");
     expect(next[0].thumbnail_path).toBe("/media/generated-image-thumb.jpg");
     expect(next[1].image_path).toBeUndefined();
+  });
+
+  it("prefers a cached blob URL when the browser is offline", async () => {
+    const cachedBlob = new Blob(["cached image"], { type: "image/jpeg" });
+    const cachedUrl = URL.createObjectURL(cachedBlob);
+
+    const resolved = await resolveImageSource("https://example.com/garment.jpg", {
+      isOffline: true,
+      readCache: async () => cachedUrl,
+    });
+
+    expect(resolved).toBe(cachedUrl);
+    URL.revokeObjectURL(cachedUrl);
   });
 });

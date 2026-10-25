@@ -2,6 +2,18 @@ import { buildExplanation } from '../engine/explanation.js'
 import { getCategoryFamily } from '../utils/garmentHelpers.js'
 import { getTemplate } from '../data/outfitTemplates.js'
 import { mediaUrl } from '../utils/api.js'
+import { useResolvedImageSource } from '../utils/imageCache.js'
+
+function OutfitTile({ item, swatch }) {
+  const imageSrc = useResolvedImageSource(item.image_path ? mediaUrl(item.image_path) : null)
+
+  return (
+    <div className="relative aspect-[1.15/1] overflow-hidden rounded-[17px] bg-white" title={item.name}>
+      {item.image_path ? <img src={imageSrc} alt={item.name} loading="lazy" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0" style={{ background: `linear-gradient(145deg, ${swatch}, color-mix(in srgb, ${swatch} 75%, #352631))` }} />}
+      <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent px-2 pb-2 pt-5 text-[9px] font-semibold uppercase tracking-[0.13em] text-white">{getCategoryFamily(item.category)}</span>
+    </div>
+  )
+}
 
 export default function OutfitCard({ outfit, score, breakdown, onSave, templates = [], featured = false }) {
   const swatches = outfit.map((item) => item.hex || item.visual_attributes?.primary_colors?.[0] || item.color || '#dfeaf6')
@@ -10,10 +22,7 @@ export default function OutfitCard({ outfit, score, breakdown, onSave, templates
     <article className={`overflow-hidden rounded-[24px] border border-[#e8e2dc] bg-white shadow-[0_10px_30px_rgba(42,31,35,0.055)] ${featured ? 'ring-1 ring-white' : ''}`}>
       <div className="grid grid-cols-3 gap-1.5 bg-[#f3efeb] p-1.5">
         {outfit.map((item, index) => (
-          <div key={item.id} className="relative aspect-[1.15/1] overflow-hidden rounded-[17px] bg-white" title={item.name}>
-            {item.image_path ? <img src={mediaUrl(item.image_path)} alt={item.name} loading="lazy" className="absolute inset-0 h-full w-full object-cover" /> : <div className="absolute inset-0" style={{ background: `linear-gradient(145deg, ${swatches[index]}, color-mix(in srgb, ${swatches[index]} 75%, #352631))` }} />}
-            <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent px-2 pb-2 pt-5 text-[9px] font-semibold uppercase tracking-[0.13em] text-white">{getCategoryFamily(item.category)}</span>
-          </div>
+          <OutfitTile key={item.id} item={item} swatch={swatches[index]} />
         ))}
       </div>
 

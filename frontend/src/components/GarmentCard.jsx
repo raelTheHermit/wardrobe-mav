@@ -1,8 +1,10 @@
 import { getCategoryLabel, getPrimaryColor, getStyleLabel } from '../utils/garmentHelpers.js'
 import { mediaUrl } from '../utils/api.js'
+import { useResolvedImageSource } from '../utils/imageCache.js'
 
 export default function GarmentCard({ garment, onSelect, onEdit, onToggleAvailability, onDelete }) {
   const available = (garment.status || 'available') === 'available'
+  const imageSrc = useResolvedImageSource(garment.image_path ? mediaUrl(garment.image_path) : null)
 
   return (
     <div className="flex flex-col overflow-hidden rounded-[20px] border border-[#e8e2dc] bg-white shadow-[0_8px_22px_rgba(42,31,35,0.045)]">
@@ -11,9 +13,9 @@ export default function GarmentCard({ garment, onSelect, onEdit, onToggleAvailab
         onClick={() => onSelect?.(garment)}
         className="flex flex-1 flex-col text-left focus-visible:outline-2 focus-visible:outline-accent"
       >
-        {garment.image_path ? (
+        {imageSrc ? (
           <img
-            src={mediaUrl(garment.image_path)}
+            src={imageSrc}
             alt={`${garment.name} garment`}
             loading="lazy"
             className="aspect-[4/3] w-full bg-[#f0ece7] object-cover"
