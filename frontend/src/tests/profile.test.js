@@ -180,10 +180,13 @@ describe("body profile utilities", () => {
     const cachedBlob = new Blob(["cached image"], { type: "image/jpeg" });
     const cachedUrl = URL.createObjectURL(cachedBlob);
 
-    const resolved = await resolveImageSource("https://example.com/garment.jpg", {
-      isOffline: true,
-      readCache: async () => cachedUrl,
-    });
+    const resolved = await resolveImageSource(
+      "https://example.com/garment.jpg",
+      {
+        isOffline: true,
+        readCache: async () => cachedUrl,
+      },
+    );
 
     expect(resolved).toBe(cachedUrl);
     URL.revokeObjectURL(cachedUrl);

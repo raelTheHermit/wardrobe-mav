@@ -28,7 +28,12 @@ export function getCachedImageUrl(sourceUrl) {
 }
 
 export function cacheImageUrl(sourceUrl, blobUrl) {
-  if (!sourceUrl || typeof sourceUrl !== "string" || !blobUrl || typeof blobUrl !== "string") {
+  if (
+    !sourceUrl ||
+    typeof sourceUrl !== "string" ||
+    !blobUrl ||
+    typeof blobUrl !== "string"
+  ) {
     return null;
   }
 
@@ -50,7 +55,11 @@ export function resolveImageSourceSync(sourceUrl, options = {}) {
     if (cached) return cached;
   }
 
-  if (/^(https?:)?\/\//.test(sourceUrl) || sourceUrl.startsWith("data:") || sourceUrl.startsWith("blob:")) {
+  if (
+    /^(https?:)?\/\//.test(sourceUrl) ||
+    sourceUrl.startsWith("data:") ||
+    sourceUrl.startsWith("blob:")
+  ) {
     return sourceUrl;
   }
 
@@ -83,7 +92,9 @@ export async function resolveImageSource(sourceUrl, options = {}) {
 }
 
 export function useResolvedImageSource(sourceUrl) {
-  const [resolved, setResolved] = useState(() => resolveImageSourceSync(sourceUrl));
+  const [resolved, setResolved] = useState(() =>
+    resolveImageSourceSync(sourceUrl),
+  );
 
   useEffect(() => {
     let active = true;
