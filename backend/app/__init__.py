@@ -8,6 +8,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash
 
+try:
+    import cloudinary
+except Exception:  # pragma: no cover - optional dependency until installed
+    cloudinary = None
+
 db = SQLAlchemy()
 migrate = Migrate()
 
@@ -18,6 +23,10 @@ def create_app(test_config=None):
     db_url = os.getenv('DATABASE_URL')
     if not db_url and not test_config:
         raise RuntimeError('DATABASE_URL is required. Copy backend/.env.example to backend/.env and configure PostgreSQL.')
+    cloud_name = os.getenv('CLOUDINARY_CLOUD_NAME')
+    api_key = os.getenv('CLOUDINARY_API_KEY')
+    api_secret = os.getenv('CLOUDINARY_API_SECRET')
+
     app.config.update(
         SQLALCHEMY_DATABASE_URI=db_url or 'sqlite:///:memory:',
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
@@ -29,7 +38,15 @@ def create_app(test_config=None):
         SESSION_COOKIE_HTTPONLY=True,
         MEDIA_DIR=os.getenv('MEDIA_DIR', str(Path(__file__).resolve().parents[1] / 'media')),
         MAX_CONTENT_LENGTH=int(os.getenv('MAX_UPLOAD_BYTES', 10 * 1024 * 1024)),
+        USE_CLOUDINARY=bool(cloud_name and api_key and api_secret and cloudinary is not None),
     )
+    if app.config['USE_CLOUDINARY']:
+        cloudinary.config(
+            cloud_name=cloud_name,
+            api_key=api_key,
+            api_secret=api_secret,
+            secure=True,
+        )
     if test_config:
         app.config.update(test_config)
     allowed_origins = [

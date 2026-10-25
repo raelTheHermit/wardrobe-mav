@@ -11,6 +11,13 @@ from werkzeug.utils import secure_filename
 from . import db
 from .models import Garment, OutfitHistory, Preferences, UserAccount, UserProfile
 
+try:
+    import cloudinary
+    import cloudinary.uploader
+except Exception:  # pragma: no cover - optional dependency until installed
+    cloudinary = None
+    cloudinary_uploader = None
+
 api = Blueprint('api', __name__)
 ALLOWED = {'jpg', 'jpeg', 'png', 'webp', 'avif'}
 
@@ -109,25 +116,63 @@ def delete_garment(garment_id):
     db.session.delete(g); db.session.commit()
     return '', 204
 
+def _save_uploaded_image(image, garment_id):
+    if not image or not image.filename or '.' not in image.filename:
+        raise ValueError('Choose an image file.')
+
+    ext = image.filename.rsplit('.', 1)[1].lower()
+    if ext not in ALLOWED:
+        raise ValueError('Use JPG, PNG, WEBP, or AVIF.')
+
+    try:
+        from PIL import Image
+        image.stream.seek(0)
+        checked = Image.open(image.stream)
+        checked.verify()
+        image.stream.seek(0)
+        expected = {'jpg': 'JPEG', 'jpeg': 'JPEG', 'png': 'PNG', 'webp': 'WEBP', 'avif': 'AVIF'}[ext]
+        if checked.format != expected:
+            raise ValueError('Image extension does not match its content')
+    except Exception as exc:  # pragma: no cover - validation is exercised as part of request handling
+        raise ValueError('The uploaded file is not a valid supported image.') from exc
+
+    payload = image.read()
+    image_hash = hashlib.sha256(payload).hexdigest()
+
+    if current_app.config.get('USE_CLOUDINARY') and cloudinary is not None and cloudinary_uploader is not None:
+        result = cloudinary_uploader.upload(
+            payload,
+            folder='fitzii/garments',
+            public_id=f'{garment_id}-{uuid.uuid4().hex}',
+            resource_type='image',
+        )
+        image_url = result.get('secure_url') or result.get('url')
+        if not image_url:
+            raise ValueError('Cloudinary upload failed. Please check your credentials.')
+        return image_url, image_url, image_hash
+
+    safe = f'{uuid.uuid4().hex}.{ext}'
+    target = Path(current_app.config['MEDIA_DIR']) / safe
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open('wb') as saved:
+        saved.write(payload)
+    return f'/media/{safe}', f'/media/{safe}', image_hash
+
+
 @api.post('/wardrobe/<string:garment_id>/image')
 def upload_image(garment_id):
     g = db.session.get(Garment, garment_id)
     image = request.files.get('image')
     if not g: return error('Garment not found.', 'not_found', 404)
-    if not image or not image.filename or '.' not in image.filename: return error('Choose an image file.')
-    ext = image.filename.rsplit('.',1)[1].lower()
-    if ext not in ALLOWED: return error('Use JPG, PNG, WEBP, or AVIF.')
-    # Validate actual content with Pillow before storing.
     try:
-        from PIL import Image
-        image.stream.seek(0); checked = Image.open(image.stream); checked.verify(); image.stream.seek(0)
-        expected = {'jpg':'JPEG','jpeg':'JPEG','png':'PNG','webp':'WEBP','avif':'AVIF'}[ext]
-        if checked.format != expected: raise ValueError('Image extension does not match its content')
-    except Exception: return error('The uploaded file is not a valid supported image.')
-    safe = f'{uuid.uuid4().hex}.{ext}'
-    image.save(Path(current_app.config['MEDIA_DIR']) / safe)
-    g.image_path = f'/media/{safe}'; g.source_filename = secure_filename(image.filename)
-    g.source_hash = hashlib.sha256((Path(current_app.config['MEDIA_DIR']) / safe).read_bytes()).hexdigest()
+        image_path, thumbnail_path, image_hash = _save_uploaded_image(image, garment_id)
+    except ValueError as exc:
+        return error(str(exc))
+
+    g.image_path = image_path
+    g.thumbnail_path = thumbnail_path
+    g.source_filename = secure_filename((image.filename or 'upload').split('/')[-1])
+    g.source_hash = image_hash
     db.session.commit()
     return jsonify(item=record(g))
 

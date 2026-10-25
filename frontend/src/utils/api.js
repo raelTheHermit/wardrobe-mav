@@ -4,8 +4,13 @@ const API_BASE = (
   import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api"
 ).replace(/\/$/, "");
 const MEDIA_BASE = API_BASE.replace(/\/api$/, "");
-export const mediaUrl = (path) =>
-  path?.startsWith("/media/") ? `${MEDIA_BASE}${path}` : path;
+export const mediaUrl = (path) => {
+  if (!path || typeof path !== "string") return path;
+  if (/^(https?:)?\/\//.test(path) || path.startsWith("data:") || path.startsWith("blob:")) {
+    return path;
+  }
+  return path.startsWith("/media/") ? `${MEDIA_BASE}${path}` : path;
+};
 
 export class ApiError extends Error {
   constructor(message, status, details) {

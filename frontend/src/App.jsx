@@ -393,8 +393,11 @@ function App() {
   const handleAddGarment = async (garment) => {
     const normalized = { status: 'available', ...garment }
     const saved = { ...normalized, id: normalized.id || `g-${Date.now()}` }
-    setGarments((current) => [saved, ...current])
-    saveToStorage(storageKeys.wardrobe, [saved, ...garments])
+    setGarments((current) => {
+      const next = [saved, ...current]
+      saveToStorage(storageKeys.wardrobe, next)
+      return next
+    })
     apiRequest('/wardrobe', { method: 'POST', body: JSON.stringify(saved) }).catch(() => { })
     setApiError('')
     return saved
@@ -402,16 +405,31 @@ function App() {
 
   const handleUpdateGarment = async (garment) => {
     const saved = { ...garment, status: garment.status || 'available' }
-    setGarments((current) => current.map((item) => item.id === saved.id ? saved : item))
-    saveToStorage(storageKeys.wardrobe, garments.map((item) => item.id === saved.id ? saved : item))
+    setGarments((current) => {
+      const next = current.map((item) => item.id === saved.id ? saved : item)
+      saveToStorage(storageKeys.wardrobe, next)
+      return next
+    })
     apiRequest(`/wardrobe/${encodeURIComponent(saved.id)}`, { method: 'PATCH', body: JSON.stringify(saved) }).catch(() => { })
     setApiError('')
     return saved
   }
 
+  const handleImageUpdate = (saved) => {
+    if (!saved || !saved.id) return
+    setGarments((current) => {
+      const next = current.map((item) => item.id === saved.id ? { ...item, ...saved } : item)
+      saveToStorage(storageKeys.wardrobe, next)
+      return next
+    })
+  }
+
   const handleDeleteGarment = async (garmentId) => {
-    setGarments((current) => current.filter((item) => item.id !== garmentId))
-    saveToStorage(storageKeys.wardrobe, garments.filter((item) => item.id !== garmentId))
+    setGarments((current) => {
+      const next = current.filter((item) => item.id !== garmentId)
+      saveToStorage(storageKeys.wardrobe, next)
+      return next
+    })
     apiRequest(`/wardrobe/${encodeURIComponent(garmentId)}`, { method: 'DELETE' }).catch(() => { })
     setApiError('')
     setSavedOutfits((current) => current.filter((entry) => !entry.outfit?.some((item) => item.id === garmentId)))
@@ -617,7 +635,7 @@ function App() {
             onSelectGarment={setSelectedGarment}
             onAddGarment={handleAddGarment}
             onUpdateGarment={handleUpdateGarment}
-            onImageUpdate={(saved) => setGarments((current) => current.map((item) => item.id === saved.id ? saved : item))}
+            onImageUpdate={handleImageUpdate}
             onDeleteGarment={handleDeleteGarment}
             onToggleGarmentAvailability={toggleGarmentAvailability}
             onExportWardrobe={handleExportWardrobe}

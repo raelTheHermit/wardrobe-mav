@@ -5,7 +5,12 @@ import {
   createDefaultProfile,
   normalizeProfile,
 } from "../utils/bodyProfile.js";
-import { loadProfile, saveProfile } from "../utils/wardrobeStorage.js";
+import { mediaUrl } from "../utils/api.js";
+import {
+  loadProfile,
+  saveProfile,
+  upsertGarmentImage,
+} from "../utils/wardrobeStorage.js";
 
 describe("body profile utilities", () => {
   it("converts centimetres to inches correctly", () => {
@@ -143,5 +148,24 @@ describe("body profile utilities", () => {
     expect(buildFitCompatibility(matchingOutfit, profile)).toBeGreaterThan(
       buildFitCompatibility(mismatchedOutfit, profile),
     );
+  });
+
+  it("leaves absolute image URLs alone and updates a garment's uploaded image metadata without dropping the rest of the record", () => {
+    const cloudinaryUrl = "https://res.cloudinary.com/example/image/upload/v1/fitzii/garments/photo.jpg";
+    expect(mediaUrl(cloudinaryUrl)).toBe(cloudinaryUrl);
+
+    const clothes = [
+      { id: "g-1", name: "Blue tee", category: "top", status: "available" },
+      { id: "g-2", name: "Black jeans", category: "bottom", status: "available" },
+    ];
+
+    const next = upsertGarmentImage(clothes, "g-1", {
+      image_path: "/media/generated-image.jpg",
+      thumbnail_path: "/media/generated-image-thumb.jpg",
+    });
+
+    expect(next[0].image_path).toBe("/media/generated-image.jpg");
+    expect(next[0].thumbnail_path).toBe("/media/generated-image-thumb.jpg");
+    expect(next[1].image_path).toBeUndefined();
   });
 });

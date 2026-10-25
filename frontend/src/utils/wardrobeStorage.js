@@ -165,6 +165,14 @@ export function normalizeImportRecord(item) {
   return item && typeof item === 'object' ? { ...item } : item
 }
 
+export function upsertGarmentImage(items, garmentId, imageRecord) {
+  if (!Array.isArray(items) || !garmentId || !imageRecord || typeof imageRecord !== 'object') {
+    return items
+  }
+
+  return items.map((item) => (item.id === garmentId ? { ...item, ...imageRecord } : item))
+}
+
 export async function importWardrobeRecords(payload) {
   const garments = Array.isArray(payload?.items) ? payload.items : Array.isArray(payload) ? payload : []
   const validGarments = garments.filter(validateGarmentRecord)
