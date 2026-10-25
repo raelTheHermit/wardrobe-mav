@@ -52,7 +52,8 @@ export function createDefaultProfile(overrides = {}) {
 }
 
 export function normalizeProfile(profile, fallback = createDefaultProfile()) {
-  if (!profile || typeof profile !== "object") return createDefaultProfile(fallback || {});
+  if (!profile || typeof profile !== "object")
+    return createDefaultProfile(fallback || {});
 
   const merged = {
     ...createDefaultProfile(),
