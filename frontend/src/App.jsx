@@ -193,13 +193,13 @@ function App() {
   }, [aesthetic, context, garments, preferences, profile, history, template])
 
   useEffect(() => {
-    if (!isOffline && account) syncQueuedOperations(apiRequest).catch(() => {})
+    if (!isOffline && account) syncQueuedOperations(apiRequest).catch(() => { })
   }, [isOffline, account])
 
   const persistPreferences = (next) => {
     setPreferences(next)
     saveToStorage(storageKeys.preferences, next)
-    apiRequest('/preferences', { method: 'PUT', body: JSON.stringify(next) }).catch(() => {})
+    apiRequest('/preferences', { method: 'PUT', body: JSON.stringify(next) }).catch(() => { })
     setApiError('')
   }
 
@@ -218,7 +218,7 @@ function App() {
     const timestamp = Date.now()
     setHistory((current) => [{ items: entry.outfit, timestamp }, ...current].slice(0, 12))
     saveToStorage(storageKeys.history, [{ items: entry.outfit, timestamp }, ...history].slice(0, 12))
-    apiRequest('/history', { method: 'POST', body: JSON.stringify({ id: `saved-${timestamp}`, garmentIds: entry.outfit.map((item) => item.id), context, score: entry.score }) }).catch(() => {})
+    apiRequest('/history', { method: 'POST', body: JSON.stringify({ id: `saved-${timestamp}`, garmentIds: entry.outfit.map((item) => item.id), context, score: entry.score }) }).catch(() => { })
   }
 
   const handleSignUp = async ({ name, username, password }) => {
@@ -382,7 +382,7 @@ function App() {
     const saved = { ...normalized, id: normalized.id || `g-${Date.now()}` }
     setGarments((current) => [saved, ...current])
     saveToStorage(storageKeys.wardrobe, [saved, ...garments])
-    apiRequest('/wardrobe', { method: 'POST', body: JSON.stringify(saved) }).catch(() => {})
+    apiRequest('/wardrobe', { method: 'POST', body: JSON.stringify(saved) }).catch(() => { })
     setApiError('')
     return saved
   }
@@ -391,7 +391,7 @@ function App() {
     const saved = { ...garment, status: garment.status || 'available' }
     setGarments((current) => current.map((item) => item.id === saved.id ? saved : item))
     saveToStorage(storageKeys.wardrobe, garments.map((item) => item.id === saved.id ? saved : item))
-    apiRequest(`/wardrobe/${encodeURIComponent(saved.id)}`, { method: 'PATCH', body: JSON.stringify(saved) }).catch(() => {})
+    apiRequest(`/wardrobe/${encodeURIComponent(saved.id)}`, { method: 'PATCH', body: JSON.stringify(saved) }).catch(() => { })
     setApiError('')
     return saved
   }
@@ -399,7 +399,7 @@ function App() {
   const handleDeleteGarment = async (garmentId) => {
     setGarments((current) => current.filter((item) => item.id !== garmentId))
     saveToStorage(storageKeys.wardrobe, garments.filter((item) => item.id !== garmentId))
-    apiRequest(`/wardrobe/${encodeURIComponent(garmentId)}`, { method: 'DELETE' }).catch(() => {})
+    apiRequest(`/wardrobe/${encodeURIComponent(garmentId)}`, { method: 'DELETE' }).catch(() => { })
     setApiError('')
     setSavedOutfits((current) => current.filter((entry) => !entry.outfit?.some((item) => item.id === garmentId)))
   }
@@ -609,7 +609,7 @@ function App() {
             onProfileChange={(nextProfile) => {
               setProfile(nextProfile)
               saveToStorage(storageKeys.profile, nextProfile)
-              apiRequest('/profile', { method: 'PUT', body: JSON.stringify(nextProfile) }).catch(() => {})
+              apiRequest('/profile', { method: 'PUT', body: JSON.stringify(nextProfile) }).catch(() => { })
             }}
             onSaveProfile={() => {
               saveToStorage(storageKeys.profile, profile)
