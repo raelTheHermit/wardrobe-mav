@@ -206,10 +206,13 @@ describe("body profile utilities", () => {
   it("prefers a cached data URL when the browser is offline", async () => {
     const cachedUrl = "data:image/jpeg;base64,ZmFrZQ==";
 
-    const resolved = await resolveImageSource("https://example.com/garment.jpg", {
-      isOffline: true,
-      readCache: async () => cachedUrl,
-    });
+    const resolved = await resolveImageSource(
+      "https://example.com/garment.jpg",
+      {
+        isOffline: true,
+        readCache: async () => cachedUrl,
+      },
+    );
 
     expect(resolved).toBe(cachedUrl);
   });

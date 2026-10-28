@@ -26,7 +26,8 @@ function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onloadend = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Unable to convert image to a data URL."));
+    reader.onerror = () =>
+      reject(new Error("Unable to convert image to a data URL."));
     reader.readAsDataURL(blob);
   });
 }
@@ -35,7 +36,9 @@ export function getCachedImageUrl(sourceUrl) {
   if (!sourceUrl || typeof sourceUrl !== "string") return null;
   const cache = readCache();
   const cached = cache[sourceUrl];
-  return typeof cached === "string" && cached.startsWith("data:") ? cached : null;
+  return typeof cached === "string" && cached.startsWith("data:")
+    ? cached
+    : null;
 }
 
 export function cacheImageUrl(sourceUrl, imageValue) {
