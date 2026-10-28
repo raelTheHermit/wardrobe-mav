@@ -7,7 +7,7 @@ export default function Explore({ outfits, onSaveOutfit }) {
       <PageHeader eyebrow="Explore" title="Outfit ideas" />
       <p className="-mt-3 max-w-2xl text-sm leading-6 text-slate-600">Browse more combinations from your wardrobe. Save the looks you want to wear again.</p>
       {outfits.length ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {outfits.map((item) => (
             <OutfitCard
               key={item.id}

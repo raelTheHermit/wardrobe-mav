@@ -41,6 +41,13 @@ select {
   font: inherit;
 }
 
+img,
+svg,
+video {
+  display: block;
+  max-width: 100%;
+}
+
 #root {
   min-height: 100vh;
 }
@@ -112,6 +119,26 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 button:active:not(:disabled) { transform: scale(0.985); }
 button:disabled { cursor: not-allowed; }
 input, select, textarea { color-scheme: light; }
+
+@media (max-width: 640px) {
+  :root {
+    font-size: 15px;
+  }
+
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .card,
+  .settings-card {
+    border-radius: 18px;
+    padding: 1rem;
+  }
+
+  .page-bottom-safe {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }

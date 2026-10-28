@@ -21,26 +21,37 @@ function writeCache(next) {
   }
 }
 
+function blobToDataUrl(blob) {
+  if (!blob) return null;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Unable to convert image to a data URL."));
+    reader.readAsDataURL(blob);
+  });
+}
+
 export function getCachedImageUrl(sourceUrl) {
   if (!sourceUrl || typeof sourceUrl !== "string") return null;
   const cache = readCache();
-  return cache[sourceUrl] || null;
+  const cached = cache[sourceUrl];
+  return typeof cached === "string" && cached.startsWith("data:") ? cached : null;
 }
 
-export function cacheImageUrl(sourceUrl, blobUrl) {
+export function cacheImageUrl(sourceUrl, imageValue) {
   if (
     !sourceUrl ||
     typeof sourceUrl !== "string" ||
-    !blobUrl ||
-    typeof blobUrl !== "string"
+    !imageValue ||
+    typeof imageValue !== "string"
   ) {
     return null;
   }
 
   const cache = readCache();
-  const next = { ...cache, [sourceUrl]: blobUrl };
+  const next = { ...cache, [sourceUrl]: imageValue };
   writeCache(next);
-  return blobUrl;
+  return imageValue;
 }
 
 export function resolveImageSourceSync(sourceUrl, options = {}) {
@@ -74,18 +85,23 @@ export async function resolveImageSource(sourceUrl, options = {}) {
       const response = await fetch(url, { cache: "force-cache" });
       if (!response.ok) return null;
       const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      cacheImageUrl(url, blobUrl);
-      return blobUrl;
+      const dataUrl = await blobToDataUrl(blob);
+      return cacheImageUrl(url, dataUrl) || dataUrl;
     },
   } = options;
 
-  const cached = readCache(sourceUrl);
+  const cached = await Promise.resolve(readCache(sourceUrl));
   if (isOffline && cached) return cached;
   if (!sourceUrl || typeof sourceUrl !== "string") return sourceUrl;
 
   try {
-    return (await fetchUrl(sourceUrl)) || sourceUrl;
+    const resolved = await fetchUrl(sourceUrl);
+    if (typeof resolved === "string" && resolved.startsWith("blob:")) {
+      const blob = await fetch(resolved).then((response) => response.blob());
+      const dataUrl = await blobToDataUrl(blob);
+      return cacheImageUrl(sourceUrl, dataUrl) || dataUrl;
+    }
+    return resolved || cached || sourceUrl;
   } catch {
     return cached || sourceUrl;
   }

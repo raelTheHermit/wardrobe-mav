@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildFitCompatibility,
   convertMeasurementValue,
@@ -176,19 +176,41 @@ describe("body profile utilities", () => {
     expect(next[1].image_path).toBeUndefined();
   });
 
-  it("prefers a cached blob URL when the browser is offline", async () => {
-    const cachedBlob = new Blob(["cached image"], { type: "image/jpeg" });
-    const cachedUrl = URL.createObjectURL(cachedBlob);
+  it("stores fetched image bytes as a persistent data URL instead of a temporary blob URL", async () => {
+    const sourceUrl = "https://example.com/garment.jpg";
+    const blob = new Blob(["persisted image"], { type: "image/jpeg" });
+    const blobUrl = "blob:example/garment";
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalFetch = global.fetch;
 
-    const resolved = await resolveImageSource(
-      "https://example.com/garment.jpg",
-      {
-        isOffline: true,
-        readCache: async () => cachedUrl,
-      },
-    );
+    URL.createObjectURL = vi.fn(() => blobUrl);
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      blob: async () => blob,
+    }));
+
+    try {
+      const resolved = await resolveImageSource(sourceUrl, {
+        isOffline: false,
+        readCache: async () => null,
+        fetchUrl: async () => blobUrl,
+      });
+
+      expect(resolved).toMatch(/^data:image\/jpeg;base64,/);
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL;
+      global.fetch = originalFetch;
+    }
+  });
+
+  it("prefers a cached data URL when the browser is offline", async () => {
+    const cachedUrl = "data:image/jpeg;base64,ZmFrZQ==";
+
+    const resolved = await resolveImageSource("https://example.com/garment.jpg", {
+      isOffline: true,
+      readCache: async () => cachedUrl,
+    });
 
     expect(resolved).toBe(cachedUrl);
-    URL.revokeObjectURL(cachedUrl);
   });
 });

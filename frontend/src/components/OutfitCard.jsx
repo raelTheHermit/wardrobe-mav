@@ -27,10 +27,10 @@ export default function OutfitCard({ outfit, score, breakdown, onSave, templates
       </div>
 
       <div className="flex items-start justify-between gap-3 p-4 sm:p-5">
-        <div className="min-w-0">
-          <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug tracking-tight text-ink">{outfit.map((item) => item.name).join(' + ')}</h3>
+        <div className="min-w-0 flex-1">
+          <h3 className="line-clamp-2 break-words text-[15px] font-semibold leading-snug tracking-tight text-ink sm:text-[15px]">{outfit.map((item) => item.name).join(' + ')}</h3>
           {templates.length ? <div className="mt-2 flex flex-wrap gap-1">{templates.map((id) => getTemplate(id)?.label).filter(Boolean).map((label) => <span key={label} className="rounded-full bg-[#f3e9ec] px-2.5 py-1 text-[10px] font-semibold text-accent">{label}</span>)}</div> : null}
-          <p className="mt-2 text-xs leading-5 text-slate-500 sm:text-sm">{buildExplanation(outfit, breakdown)}</p>
+          <p className="mt-2 break-words text-xs leading-5 text-slate-500 sm:text-sm">{buildExplanation(outfit, breakdown)}</p>
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-2.5">

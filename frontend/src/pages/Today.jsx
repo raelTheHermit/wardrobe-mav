@@ -101,12 +101,12 @@ export default function Today({
 
       {outfits.length > 1 ? <section className="space-y-3">
         <div className="flex items-baseline justify-between"><h3 className="text-lg font-semibold tracking-tight text-ink">A few more ideas</h3><span className="text-xs text-slate-500">Picked for you</span></div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{outfits.slice(1, 4).map((item) => <OutfitCard key={item.id} outfit={item.outfit} score={item.score} breakdown={item.breakdown} templates={item.templates} onSave={() => onSaveOutfit(item)} />)}</div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">{outfits.slice(1, 4).map((item) => <OutfitCard key={item.id} outfit={item.outfit} score={item.score} breakdown={item.breakdown} templates={item.templates} onSave={() => onSaveOutfit(item)} />)}</div>
       </section> : null}
 
       <section className="space-y-3">
         <div><p className="text-xs font-semibold uppercase tracking-[0.17em] text-accent">More like your style</p><h3 className="mt-1 text-lg font-semibold tracking-tight text-ink">In your {currentAesthetic} aesthetic</h3></div>
-        {aestheticOutfits.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{aestheticOutfits.slice(0, 3).map((item) => <OutfitCard key={item.id} outfit={item.outfit} score={item.score} breakdown={item.breakdown} templates={item.templates} onSave={() => onSaveOutfit(item)} />)}</div> : <p className="rounded-2xl border border-[#e8e2dc] bg-white p-4 text-sm text-slate-500">Add more tagged pieces to get suggestions in this aesthetic.</p>}
+        {aestheticOutfits.length ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">{aestheticOutfits.slice(0, 3).map((item) => <OutfitCard key={item.id} outfit={item.outfit} score={item.score} breakdown={item.breakdown} templates={item.templates} onSave={() => onSaveOutfit(item)} />)}</div> : <p className="rounded-2xl border border-[#e8e2dc] bg-white p-4 text-sm text-slate-500">Add more tagged pieces to get suggestions in this aesthetic.</p>}
       </section>
     </section>
   )
